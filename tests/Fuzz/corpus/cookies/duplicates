@@ -1,0 +1,2 @@
+session=first; empty=; invalid; spaced = value
+session=second; encoded=%D0%B3%D0%BE%D1%80%D0%BE%D0%B4

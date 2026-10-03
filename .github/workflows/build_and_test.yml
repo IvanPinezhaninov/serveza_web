@@ -1,0 +1,385 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-24.04
+            configure_preset: gcc-release-static
+            build_preset: gcc-release-static
+            build_dir: build/gcc-release-static
+            use_ccache: true
+            use_ssl: false
+            use_cpp20: false
+
+          - os: ubuntu-24.04
+            configure_preset: clang-release-shared
+            build_preset: clang-release-shared
+            build_dir: build/clang-release-shared
+            use_ccache: true
+            use_ssl: true
+            use_cpp20: true
+
+          # macOS
+          - os: macos-15
+            configure_preset: gcc-release-static
+            build_preset: gcc-release-static
+            build_dir: build/gcc-release-static
+            use_ccache: true
+            use_ssl: false
+            use_cpp20: true
+
+          - os: macos-15
+            configure_preset: clang-release-shared
+            build_preset: clang-release-shared
+            build_dir: build/clang-release-shared
+            use_ccache: true
+            use_ssl: false
+            use_cpp20: true
+
+          # Windows (MSVC multi-config; Release build preset)
+          - os: windows-2025-vs2026
+            configure_preset: msvc-shared
+            build_preset: msvc-release-shared
+            build_dir: build/msvc-shared
+            use_ccache: false
+            use_ssl: false
+            use_cpp20: true
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Setup MSVC Developer Command Prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+
+      - name: Install NASM
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1.5.2
+
+      - name: Print CMake version
+        run: cmake --version
+
+      - name: Install ccache (Ubuntu)
+        if: runner.os == 'Linux' && matrix.use_ccache
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+
+      - name: Install ccache (macOS)
+        if: runner.os == 'macOS' && matrix.use_ccache
+        shell: bash
+        run: |
+          brew update
+          brew install ccache
+
+      - name: Cache dependencies and compiler output
+        uses: actions/cache@v4.3.0
+        with:
+          path: |
+            ${{ matrix.build_dir }}/_deps
+            ${{ matrix.build_dir }}/ccache
+          key: >
+            ${{ runner.os }}-${{ matrix.build_preset }}-
+            ${{ hashFiles('CMakePresets.json', '**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.build_preset }}-
+            ${{ runner.os }}-
+
+      - name: Configure (preset)
+        shell: bash
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/${{ matrix.build_dir }}/ccache
+        run: |
+          cmake --preset ${{ matrix.configure_preset }} \
+            -DSERVEZA_WEB_USE_SSL=${{ matrix.use_ssl }} \
+            -DSERVEZA_WEB_BUILD_CPP20=${{ matrix.use_cpp20 }} \
+            -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/${{ matrix.build_dir }}/_deps" \
+            -DCMAKE_C_COMPILER_LAUNCHER=$([ "${{ matrix.use_ccache }}" = "true" ] && echo ccache || echo "") \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=$([ "${{ matrix.use_ccache }}" = "true" ] && echo ccache || echo "")
+
+      - name: Build (preset)
+        run: cmake --build --preset ${{ matrix.build_preset }}
+
+      - name: Test
+        working-directory: ${{ matrix.build_dir }}
+        run: ctest --build-config Release --rerun-failed --output-on-failure
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Configure
+        run: cmake --preset clang-debug-static-asan-ubsan
+
+      - name: Build
+        run: cmake --build --preset clang-debug-static-asan-ubsan
+
+      - name: Test
+        run: ctest --preset clang-debug-static-asan-ubsan
+
+  thread-sanitizer:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Configure
+        run: cmake --preset clang-debug-static-tsan
+
+      - name: Build
+        run: cmake --build --preset clang-debug-static-tsan
+
+      - name: Test thread-safe units
+        run: ctest --preset clang-debug-static-tsan
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install gcovr
+        run: pipx install gcovr==8.6
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/coverage-build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=g++
+          -DSERVEZA_WEB_BUILD_TESTS=ON
+          -DSERVEZA_WEB_BUILD_INTEGRATION_TESTS=ON
+          -DSERVEZA_WEB_BUILD_CPP20=ON
+          -DSERVEZA_WEB_ENABLE_COVERAGE=ON
+          -DSERVEZA_WEB_INSTALL=OFF
+
+      - name: Test and generate report
+        run: cmake --build build/coverage-build --target ServezaWebCoverage --parallel 4
+
+      - name: Add summary
+        run: cat build/coverage-build/coverage/summary.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare Pages report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          import xml.etree.ElementTree as ElementTree
+
+          report_directory = Path("build/coverage-build/coverage")
+          report = ElementTree.parse(report_directory / "coverage.xml")
+          percentage = float(report.getroot().attrib["line-rate"]) * 100
+
+          if percentage >= 90:
+              color = "brightgreen"
+          elif percentage >= 80:
+              color = "green"
+          elif percentage >= 70:
+              color = "yellowgreen"
+          elif percentage >= 60:
+              color = "yellow"
+          else:
+              color = "red"
+
+          badge = {
+              "schemaVersion": 1,
+              "label": "Coverage",
+              "message": f"{percentage:.1f}%",
+              "color": color,
+          }
+          (report_directory / "coverage.json").write_text(
+              json.dumps(badge, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ github.sha }}
+          path: build/coverage-build/coverage
+          if-no-files-found: error
+
+      - name: Upload Pages report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/coverage-build/coverage
+
+  coverage-pages:
+    name: Publish coverage
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: coverage
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy coverage report
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  fuzz:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Configure fuzzers
+        run: >-
+          cmake -S . -B build/fuzz -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER=clang++
+          -DSERVEZA_WEB_BUILD_FUZZERS=ON
+          -DSERVEZA_WEB_INSTALL=OFF
+
+      - name: Build fuzzers
+        run: cmake --build build/fuzz
+
+      - name: Run parser campaigns
+        shell: bash
+        env:
+          FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '300' || '20' }}
+        run: |
+          campaign_timeout=$((FUZZ_SECONDS + 30))
+          mkdir -p build/fuzz-corpus/{cookies,route_pattern,target}
+          timeout --kill-after=5s "${campaign_timeout}s" \
+            build/fuzz/tests/Fuzz/Cookies/ServezaWebFuzzCookies \
+            -max_total_time="$FUZZ_SECONDS" -timeout=5 -max_len=16384 \
+            build/fuzz-corpus/cookies tests/Fuzz/corpus/cookies
+          timeout --kill-after=5s "${campaign_timeout}s" \
+            build/fuzz/tests/Fuzz/RoutePattern/ServezaWebFuzzRoutePattern \
+            -max_total_time="$FUZZ_SECONDS" -timeout=5 -max_len=4096 \
+            build/fuzz-corpus/route_pattern tests/Fuzz/corpus/route_pattern
+          timeout --kill-after=5s "${campaign_timeout}s" \
+            build/fuzz/tests/Fuzz/Target/ServezaWebFuzzTarget \
+            -max_total_time="$FUZZ_SECONDS" -timeout=5 -max_len=16384 \
+            build/fuzz-corpus/target tests/Fuzz/corpus/target
+
+  quality:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install documentation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Check formatting
+        shell: bash
+        run: clang-format --dry-run --Werror $(git ls-files '*.h' '*.cpp')
+
+      - name: Configure documentation
+        run: >-
+          cmake -S . -B build/docs -G Ninja
+          -DSERVEZA_WEB_BUILD_DOCS=ON
+          -DSERVEZA_WEB_INSTALL=OFF
+
+      - name: Build documentation
+        run: cmake --build build/docs --target ServezaWebDocs
+
+  package:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shared: "OFF"
+            linkage: static
+          - shared: "ON"
+            linkage: shared
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Configure library
+        run: >-
+          cmake -S . -B build/package -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/build/package/install
+          -DBUILD_SHARED_LIBS=${{ matrix.shared }}
+          -DSERVEZA_WEB_INSTALL=ON
+
+      - name: Build library
+        run: cmake --build build/package
+
+      - name: Build binary packages
+        run: cmake --build build/package --target package
+
+      - name: Install matching Boost package
+        run: >-
+          cmake -S build/package/_deps/serveza_web_boost-src -B build/package-boost -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/build/package/install
+          -DBUILD_SHARED_LIBS=OFF
+          -DBOOST_SKIP_INSTALL_RULES=OFF
+          '-DBOOST_INCLUDE_LIBRARIES=any;asio;container;coroutine;uuid;beast'
+
+      - name: Build and install matching Boost package
+        run: cmake --build build/package-boost --target install
+
+      - name: Install library
+        run: cmake --install build/package
+
+      - name: Configure installed-package consumer
+        run: >-
+          cmake -S tests/Consumer -B build/consumer -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build/package/install
+
+      - name: Build installed-package consumer
+        run: cmake --build build/consumer
+
+      - name: Build source archive
+        if: matrix.shared == 'OFF'
+        run: cmake --build build/package --target ServezaWebSourcePackage
+
+      - name: Verify tagged release metadata
+        if: matrix.shared == 'OFF' && startsWith(github.ref, 'refs/tags/v')
+        run: cmake --build build/package --target ServezaWebVerifyRelease
+
+      - name: Verify packages
+        working-directory: build/package/packages
+        run: |
+          ls serveza_web-*.tar.gz serveza_web-*.zip serveza_web-*.deb serveza_web-*.rpm
+          sha256sum --check *.sha256
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.linkage }}
+          path: build/package/packages
+          if-no-files-found: error

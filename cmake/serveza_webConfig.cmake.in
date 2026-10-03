@@ -1,0 +1,94 @@
+#============================================================================
+#
+# Copyright (C) 2026 Ivan Pinezhaninov <ivan.pinezhaninov@gmail.com>
+#
+# This file is part of serveza_web, which can be found at
+# https://github.com/IvanPinezhaninov/serveza_web/.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+# OR OTHER DEALINGS IN THE SOFTWARE.
+#
+#============================================================================
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if(NOT TARGET serveza::serveza)
+  find_dependency(serveza CONFIG REQUIRED)
+endif()
+
+if(NOT TARGET Boost::beast OR NOT TARGET Boost::any)
+  if(NOT TARGET Boost::headers AND NOT TARGET Boost::boost AND
+     NOT TARGET Boost::asio_core AND NOT TARGET Boost::asio)
+    find_dependency(Boost @SERVEZA_WEB_BOOST_MIN_VERSION@ REQUIRED)
+  endif()
+  if(TARGET Boost::headers)
+    set(serveza_web_boost_headers_target Boost::headers)
+  elseif(TARGET Boost::boost)
+    set(serveza_web_boost_headers_target Boost::boost)
+  elseif(TARGET Boost::asio_core)
+    set(serveza_web_boost_headers_target Boost::asio_core)
+  elseif(TARGET Boost::asio)
+    set(serveza_web_boost_headers_target Boost::asio)
+  else()
+    set(serveza_web_NOT_FOUND_MESSAGE "Boost headers are required")
+    set(serveza_web_FOUND FALSE)
+    return()
+  endif()
+  foreach(serveza_web_boost_header_component any beast)
+    if(NOT TARGET Boost::${serveza_web_boost_header_component})
+      add_library(Boost::${serveza_web_boost_header_component} INTERFACE IMPORTED)
+      set_property(TARGET Boost::${serveza_web_boost_header_component}
+                   PROPERTY INTERFACE_LINK_LIBRARIES ${serveza_web_boost_headers_target})
+    endif()
+  endforeach()
+endif()
+
+# Keep installed callback and C++20 consumers free of Boost.Context too.
+if(NOT TARGET serveza_web_dependencies::boost_beast_headers)
+  add_library(serveza_web_dependencies::boost_beast_headers INTERFACE IMPORTED)
+  if(TARGET Boost::asio_core)
+    get_target_property(serveza_web_boost_beast_include_dirs
+                        Boost::beast INTERFACE_INCLUDE_DIRECTORIES)
+    get_target_property(serveza_web_boost_beast_dependencies
+                        Boost::beast INTERFACE_LINK_LIBRARIES)
+    if(Boost::asio IN_LIST serveza_web_boost_beast_dependencies)
+      list(REMOVE_ITEM serveza_web_boost_beast_dependencies Boost::asio)
+      list(APPEND serveza_web_boost_beast_dependencies Boost::asio_core)
+      set_property(TARGET serveza_web_dependencies::boost_beast_headers
+                   PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+                            ${serveza_web_boost_beast_include_dirs})
+      set_property(TARGET serveza_web_dependencies::boost_beast_headers
+                   PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
+                            ${serveza_web_boost_beast_include_dirs})
+      set_property(TARGET serveza_web_dependencies::boost_beast_headers
+                   PROPERTY INTERFACE_LINK_LIBRARIES
+                            ${serveza_web_boost_beast_dependencies})
+    else()
+      set_property(TARGET serveza_web_dependencies::boost_beast_headers
+                   PROPERTY INTERFACE_LINK_LIBRARIES Boost::beast)
+    endif()
+  else()
+    set_property(TARGET serveza_web_dependencies::boost_beast_headers
+                 PROPERTY INTERFACE_LINK_LIBRARIES Boost::beast)
+  endif()
+endif()
+
+if(@SERVEZA_WEB_USE_SSL@)
+  if(NOT TARGET OpenSSL::SSL OR NOT TARGET OpenSSL::Crypto)
+    find_dependency(OpenSSL REQUIRED)
+  endif()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/serveza_webTargets.cmake")
+set_property(TARGET serveza::web APPEND
+             PROPERTY INTERFACE_LINK_LIBRARIES
+                      Boost::any
+                      serveza_web_dependencies::boost_beast_headers)
+check_required_components(serveza_web)

@@ -1,0 +1,391 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28 },
+
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/${presetName}/install",
+        "SERVEZA_WEB_INSTALL": "ON"
+      }
+    },
+
+    { "name": "static-library", "hidden": true, "cacheVariables": { "BUILD_SHARED_LIBS": "OFF" } },
+    { "name": "shared-library", "hidden": true, "cacheVariables": { "BUILD_SHARED_LIBS": "ON" } },
+
+    {
+      "name": "enable-examples",
+      "hidden": true,
+      "cacheVariables": {
+        "SERVEZA_WEB_BUILD_EXAMPLES": "ON"
+      }
+    },
+
+    {
+      "name": "enable-tests",
+      "hidden": true,
+      "cacheVariables": {
+        "SERVEZA_WEB_BUILD_TESTS": "ON",
+        "SERVEZA_WEB_BUILD_INTEGRATION_TESTS": "ON",
+        "SERVEZA_WEB_BUILD_CPP20": "ON"
+      }
+    },
+
+    {
+      "name": "gcc-debug-static",
+      "displayName": "GCC Debug Static (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+
+    {
+      "name": "gcc-debug-shared",
+      "displayName": "GCC Debug Shared (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+
+    {
+      "name": "gcc-release-static",
+      "displayName": "GCC Release Static (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "gcc-release-shared",
+      "displayName": "GCC Release Shared (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "gcc-relwithdebinfo-static",
+      "displayName": "GCC RelWithDebInfo Static (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+
+    {
+      "name": "gcc-relwithdebinfo-shared",
+      "displayName": "GCC RelWithDebInfo Shared (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+
+    {
+      "name": "clang-debug-static",
+      "displayName": "Clang Debug Static (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "clang", "CXX": "clang++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+
+    {
+      "name": "clang-debug-shared",
+      "displayName": "Clang Debug Shared (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "clang", "CXX": "clang++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+
+    {
+      "name": "clang-release-static",
+      "displayName": "Clang Release Static (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "clang", "CXX": "clang++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "clang-release-shared",
+      "displayName": "Clang Release Shared (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "clang", "CXX": "clang++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "clang-relwithdebinfo-static",
+      "displayName": "Clang RelWithDebInfo Static (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "clang", "CXX": "clang++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+
+    {
+      "name": "clang-relwithdebinfo-shared",
+      "displayName": "Clang RelWithDebInfo Shared (Ninja)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "clang", "CXX": "clang++" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+
+    {
+      "name": "clang-debug-static-asan-ubsan",
+      "displayName": "Clang ASan+UBSan Debug Static",
+      "inherits": "clang-debug-static",
+      "cacheVariables": {
+        "SERVEZA_WEB_ENABLE_SANITIZERS": "ON"
+      }
+    },
+
+    {
+      "name": "clang-debug-shared-asan-ubsan",
+      "displayName": "Clang ASan+UBSan Debug Shared",
+      "inherits": "clang-debug-shared",
+      "cacheVariables": {
+        "SERVEZA_WEB_ENABLE_SANITIZERS": "ON"
+      }
+    },
+
+    {
+      "name": "clang-debug-static-tsan",
+      "displayName": "Clang ThreadSanitizer Debug Static",
+      "inherits": "clang-debug-static",
+      "cacheVariables": {
+        "SERVEZA_WEB_ENABLE_THREAD_SANITIZER": "ON",
+        "SERVEZA_WEB_BUILD_INTEGRATION_TESTS": "OFF"
+      }
+    },
+
+    {
+      "name": "clang-debug-shared-tsan",
+      "displayName": "Clang ThreadSanitizer Debug Shared",
+      "inherits": "clang-debug-shared",
+      "cacheVariables": {
+        "SERVEZA_WEB_ENABLE_THREAD_SANITIZER": "ON",
+        "SERVEZA_WEB_BUILD_INTEGRATION_TESTS": "OFF"
+      }
+    },
+
+    {
+      "name": "coverage",
+      "displayName": "GCC Coverage (Debug)",
+      "inherits": [ "base", "enable-tests", "static-library" ],
+      "generator": "Ninja",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "environment": { "CC": "gcc", "CXX": "g++" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SERVEZA_WEB_BUILD_INTEGRATION_TESTS": "ON",
+        "SERVEZA_WEB_ENABLE_COVERAGE": "ON"
+      }
+    },
+
+    {
+      "name": "msvc-static",
+      "displayName": "MSVC Static (Visual Studio 2026)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "static-library" ],
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/${presetName}/install/$<CONFIG>"
+      }
+    },
+
+    {
+      "name": "msvc-shared",
+      "displayName": "MSVC Shared (Visual Studio 2026)",
+      "inherits": [ "base", "enable-examples", "enable-tests", "shared-library" ],
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/${presetName}/install/$<CONFIG>"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "gcc-debug-static", "configurePreset": "gcc-debug-static" },
+    { "name": "gcc-debug-shared", "configurePreset": "gcc-debug-shared" },
+    { "name": "gcc-release-static", "configurePreset": "gcc-release-static" },
+    { "name": "gcc-release-shared", "configurePreset": "gcc-release-shared" },
+    { "name": "gcc-relwithdebinfo-static", "configurePreset": "gcc-relwithdebinfo-static" },
+    { "name": "gcc-relwithdebinfo-shared", "configurePreset": "gcc-relwithdebinfo-shared" },
+    { "name": "clang-debug-static", "configurePreset": "clang-debug-static" },
+    { "name": "clang-debug-shared", "configurePreset": "clang-debug-shared" },
+    { "name": "clang-release-static", "configurePreset": "clang-release-static" },
+    { "name": "clang-release-shared", "configurePreset": "clang-release-shared" },
+    { "name": "clang-relwithdebinfo-static", "configurePreset": "clang-relwithdebinfo-static" },
+    { "name": "clang-relwithdebinfo-shared", "configurePreset": "clang-relwithdebinfo-shared" },
+    { "name": "clang-debug-static-asan-ubsan", "configurePreset": "clang-debug-static-asan-ubsan" },
+    { "name": "clang-debug-shared-asan-ubsan", "configurePreset": "clang-debug-shared-asan-ubsan" },
+    { "name": "clang-debug-static-tsan", "configurePreset": "clang-debug-static-tsan" },
+    { "name": "clang-debug-shared-tsan", "configurePreset": "clang-debug-shared-tsan" },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
+      "targets": [ "ServezaWebCoverage" ]
+    },
+    { "name": "msvc-debug-static", "configurePreset": "msvc-static", "configuration": "Debug" },
+    { "name": "msvc-debug-shared", "configurePreset": "msvc-shared", "configuration": "Debug" },
+    { "name": "msvc-release-static", "configurePreset": "msvc-static", "configuration": "Release" },
+    { "name": "msvc-release-shared", "configurePreset": "msvc-shared", "configuration": "Release" },
+    {
+      "name": "msvc-relwithdebinfo-static",
+      "configurePreset": "msvc-static",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "msvc-relwithdebinfo-shared",
+      "configurePreset": "msvc-shared",
+      "configuration": "RelWithDebInfo"
+    }
+  ],
+
+  "testPresets": [
+    { "name": "gcc-debug-static", "configurePreset": "gcc-debug-static", "output": { "outputOnFailure": true } },
+    { "name": "gcc-debug-shared", "configurePreset": "gcc-debug-shared", "output": { "outputOnFailure": true } },
+    { "name": "gcc-release-static", "configurePreset": "gcc-release-static", "output": { "outputOnFailure": true } },
+    { "name": "gcc-release-shared", "configurePreset": "gcc-release-shared", "output": { "outputOnFailure": true } },
+    {
+      "name": "gcc-relwithdebinfo-static",
+      "configurePreset": "gcc-relwithdebinfo-static",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "gcc-relwithdebinfo-shared",
+      "configurePreset": "gcc-relwithdebinfo-shared",
+      "output": { "outputOnFailure": true }
+    },
+    { "name": "clang-debug-static", "configurePreset": "clang-debug-static", "output": { "outputOnFailure": true } },
+    { "name": "clang-debug-shared", "configurePreset": "clang-debug-shared", "output": { "outputOnFailure": true } },
+    { "name": "clang-release-static", "configurePreset": "clang-release-static", "output": { "outputOnFailure": true } },
+    { "name": "clang-release-shared", "configurePreset": "clang-release-shared", "output": { "outputOnFailure": true } },
+    {
+      "name": "clang-relwithdebinfo-static",
+      "configurePreset": "clang-relwithdebinfo-static",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "clang-relwithdebinfo-shared",
+      "configurePreset": "clang-relwithdebinfo-shared",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "clang-debug-static-asan-ubsan",
+      "configurePreset": "clang-debug-static-asan-ubsan",
+      "output": { "outputOnFailure": true },
+      "environment": { "ASAN_OPTIONS": "detect_leaks=0" }
+    },
+    {
+      "name": "clang-debug-shared-asan-ubsan",
+      "configurePreset": "clang-debug-shared-asan-ubsan",
+      "output": { "outputOnFailure": true },
+      "environment": { "ASAN_OPTIONS": "detect_leaks=0" }
+    },
+    {
+      "name": "clang-debug-static-tsan",
+      "configurePreset": "clang-debug-static-tsan",
+      "output": { "outputOnFailure": true },
+      "environment": { "TSAN_OPTIONS": "halt_on_error=1" }
+    },
+    {
+      "name": "clang-debug-shared-tsan",
+      "configurePreset": "clang-debug-shared-tsan",
+      "output": { "outputOnFailure": true },
+      "environment": { "TSAN_OPTIONS": "halt_on_error=1" }
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-debug-static",
+      "configurePreset": "msvc-static",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-debug-shared",
+      "configurePreset": "msvc-shared",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-release-static",
+      "configurePreset": "msvc-static",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-release-shared",
+      "configurePreset": "msvc-shared",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-relwithdebinfo-static",
+      "configurePreset": "msvc-static",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-relwithdebinfo-shared",
+      "configurePreset": "msvc-shared",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true }
+    }
+  ],
+
+  "packagePresets": [
+    {
+      "name": "gcc-release-static",
+      "configurePreset": "gcc-release-static",
+      "generators": [ "TGZ", "ZIP", "DEB", "RPM" ]
+    },
+    {
+      "name": "gcc-release-shared",
+      "configurePreset": "gcc-release-shared",
+      "generators": [ "TGZ", "ZIP", "DEB", "RPM" ]
+    },
+    {
+      "name": "clang-release-static",
+      "configurePreset": "clang-release-static",
+      "generators": [ "TGZ", "ZIP" ]
+    },
+    {
+      "name": "clang-release-shared",
+      "configurePreset": "clang-release-shared",
+      "generators": [ "TGZ", "ZIP" ]
+    }
+  ]
+}

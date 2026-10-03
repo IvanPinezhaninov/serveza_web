@@ -1,0 +1,27 @@
+#============================================================================
+#
+# Copyright (C) 2026 Ivan Pinezhaninov <ivan.pinezhaninov@gmail.com>
+#
+# This file is part of serveza_web, which can be found at
+# https://github.com/IvanPinezhaninov/serveza_web/.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+# OR OTHER DEALINGS IN THE SOFTWARE.
+#
+#============================================================================
+
+cmake_policy(SET CMP0009 NEW)
+
+if(NOT DEFINED COVERAGE_BUILD_DIRECTORY OR COVERAGE_BUILD_DIRECTORY STREQUAL "")
+  message(FATAL_ERROR "COVERAGE_BUILD_DIRECTORY is required")
+endif()
+
+file(GLOB_RECURSE COVERAGE_DATA_FILES "${COVERAGE_BUILD_DIRECTORY}/*.gcda")
+if(COVERAGE_DATA_FILES)
+  file(REMOVE ${COVERAGE_DATA_FILES})
+endif()
