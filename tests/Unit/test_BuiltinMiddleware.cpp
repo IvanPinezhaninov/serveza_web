@@ -677,6 +677,38 @@ TEST(TrafficObserverMiddlewareTest, ObservesChunkedResponsesAndIgnoresSinkFailur
   EXPECT_EQ(responseBody, "first-second");
 }
 
+TEST(TrafficObserverMiddlewareTest, ObservesACompletedWebSocketUpgrade)
+{
+  int requestHeaders{};
+  int responseHeaders{};
+  int completed{};
+  std::string requestBody;
+  std::string responseBody;
+  TrafficCapture capture{requestHeaders, responseHeaders, completed, requestBody, responseBody};
+  auto observer = middleware::observe_traffic{std::ref(capture)};
+  RequestHarness request;
+  request.setRequestHeader(http::field::connection, "upgrade");
+  request.setRequestHeader(http::field::upgrade, "websocket");
+  request.run([&](serveza::web::request_context& ctx, boost::asio::yield_context yield) {
+    auto terminal = [&](boost::asio::yield_context terminalYield) {
+      ctx.async_accept_websocket([](serveza::web::websocket_connection&,
+                                    serveza::web::completion_handler handler) { handler(boost::system::error_code{}); },
+                                 serveza::web::websocket_options{}, terminalYield);
+    };
+    auto next = makeTestNext(terminal, ctx);
+    serveza::web::async_invoke_layer(observer, ctx, next, yield);
+    serveza::web::details::complete_traffic_observers(request.state(), nullptr);
+  });
+
+  EXPECT_EQ(requestHeaders, 1);
+  EXPECT_EQ(responseHeaders, 1);
+  EXPECT_EQ(completed, 1);
+  EXPECT_EQ(capture.m_responseStatus, http::status::switching_protocols);
+  EXPECT_EQ(capture.m_responseKind, middleware::response_body_kind::websocket);
+  EXPECT_TRUE(capture.m_completionResponseCompleted);
+  EXPECT_EQ(capture.m_completionResponseBodySize, 0U);
+}
+
 TEST(WebSocketUpgradeMiddlewareTest, RejectsOrdinaryHttpRequests)
 {
   auto middleware = middleware::websocket_upgrade{

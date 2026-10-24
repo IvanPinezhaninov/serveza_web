@@ -163,9 +163,10 @@ public:
 
   void async_accept_websocket(const serveza::web::details::parser_type&, const boost::beast::http::fields&,
                               const serveza::web::websocket_options&, void*, websocket_callback,
-                              serveza::web::details::completion_callback) override
+                              serveza::web::details::completion_callback handler) override
   {
-    throw std::logic_error{"unexpected WebSocket upgrade"};
+    websocketAccepted = true;
+    complete(std::move(handler), websocketEc);
   }
 
   std::optional<serveza::web::details::string_response> response;
@@ -178,6 +179,8 @@ public:
   std::uint64_t fileResponseSize{};
   std::uint64_t fileResponseOffset{};
   bool skippedBody{};
+  bool websocketAccepted{};
+  boost::system::error_code websocketEc;
   std::string bodyInput;
   std::size_t bodyOffset{};
   std::size_t maximumReadSize{std::numeric_limits<std::size_t>::max()};
