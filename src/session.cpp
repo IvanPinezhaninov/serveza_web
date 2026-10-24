@@ -104,23 +104,36 @@ bool expected_disconnect(const sys::error_code& ec) noexcept
 
 template<typename Socket>
 class socket_deadline final {
+  struct state final {
+    explicit state(Socket& socket_value)
+      : socket{&socket_value}
+      , timer{socket_value.get_executor()}
+    {}
+
+    std::mutex mutex;
+    Socket* socket;
+    net::steady_timer timer;
+  };
+
 public:
   explicit socket_deadline(Socket& socket)
-    : m_socket{socket}
-    , m_timer{socket.get_executor()}
+    : m_state{std::make_shared<state>(socket)}
   {}
 
   ~socket_deadline()
   {
-    cancel();
+    stop();
   }
 
   void arm(std::chrono::seconds timeout)
   {
-    m_timer.expires_after(timeout);
-    Socket* socket = &m_socket;
-    m_timer.async_wait([socket](sys::error_code ec) {
-      if (ec || !socket->is_open()) return;
+    const auto shared_state = m_state;
+    shared_state->timer.expires_after(timeout);
+    shared_state->timer.async_wait([shared_state](sys::error_code ec) {
+      if (ec) return;
+      std::lock_guard lock{shared_state->mutex};
+      Socket* socket = shared_state->socket;
+      if (socket == nullptr || !socket->is_open()) return;
       sys::error_code ignored;
       socket->cancel(ignored);
       socket->close(ignored);
@@ -130,13 +143,21 @@ public:
   void cancel() noexcept
   {
     try {
-      m_timer.cancel();
+      m_state->timer.cancel();
     } catch (...) {}
   }
 
+  void stop() noexcept
+  {
+    {
+      std::lock_guard lock{m_state->mutex};
+      m_state->socket = nullptr;
+    }
+    cancel();
+  }
+
 private:
-  Socket& m_socket;
-  net::steady_timer m_timer;
+  std::shared_ptr<state> m_state;
 };
 
 template<typename Stream>
@@ -832,6 +853,7 @@ private:
 
   void finish(sys::error_code ec)
   {
+    m_deadline.stop();
     completion_handler handler = std::move(m_handler);
     complete(m_transport.get_executor(), std::move(handler), ec);
   }
@@ -900,6 +922,7 @@ private:
 
   void finish(sys::error_code ec)
   {
+    m_deadline.stop();
     complete(m_ctx.get_executor(), std::move(m_handler), ec);
   }
 
