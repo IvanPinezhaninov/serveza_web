@@ -17,6 +17,12 @@
 
 cmake_minimum_required(VERSION 3.28)
 
+# Qt Creator reads this cache entry during project(), before PROJECT_IS_TOP_LEVEL exists.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  set(QT_CREATOR_ENABLE_MAINTENANCE_TOOL_PROVIDER OFF CACHE BOOL
+      "Disable Qt Creator's Qt Maintenance Tool package provider" FORCE)
+endif()
+
 project(serveza_web LANGUAGES CXX VERSION 0.1.0)
 
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -191,6 +197,10 @@ target_compile_definitions(${PROJECT_NAME}
 
 if(WIN32)
   target_compile_definitions(${PROJECT_NAME} PUBLIC _WIN32_WINNT=0x0A00 BOOST_ALL_NO_LIB)
+endif()
+
+if(MSVC)
+  target_compile_options(${PROJECT_NAME} PRIVATE /bigobj)
 endif()
 
 target_include_directories(${PROJECT_NAME}

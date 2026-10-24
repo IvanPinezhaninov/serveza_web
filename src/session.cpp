@@ -102,9 +102,10 @@ bool expected_disconnect(const sys::error_code& ec) noexcept
          ec == net::error::connection_aborted || ec == net::error::broken_pipe || ec == net::error::operation_aborted;
 }
 
+template<typename Socket>
 class socket_deadline final {
 public:
-  explicit socket_deadline(net::ip::tcp::socket& socket)
+  explicit socket_deadline(Socket& socket)
     : m_socket{socket}
     , m_timer{socket.get_executor()}
   {}
@@ -117,7 +118,7 @@ public:
   void arm(std::chrono::seconds timeout)
   {
     m_timer.expires_after(timeout);
-    net::ip::tcp::socket* socket = &m_socket;
+    Socket* socket = &m_socket;
     m_timer.async_wait([socket](sys::error_code ec) {
       if (ec || !socket->is_open()) return;
       sys::error_code ignored;
@@ -134,7 +135,7 @@ public:
   }
 
 private:
-  net::ip::tcp::socket& m_socket;
+  Socket& m_socket;
   net::steady_timer m_timer;
 };
 
@@ -488,10 +489,10 @@ private:
   std::string m_close_reason;
 };
 
-template<typename Stream>
+template<typename Stream, typename Socket>
 class beast_transport final : public details::transport {
 public:
-  beast_transport(Stream& stream, socket_deadline& deadline, std::chrono::seconds timeout)
+  beast_transport(Stream& stream, socket_deadline<Socket>& deadline, std::chrono::seconds timeout)
     : m_stream{stream}
     , m_deadline{deadline}
     , m_timeout{timeout}
@@ -551,8 +552,8 @@ public:
                               details::completion_callback handler) override
   {
     struct state final : std::enable_shared_from_this<state> {
-      state(Stream& stream_value, socket_deadline& deadline_value, beast::file& file_value, std::uint64_t length_value,
-            details::completion_callback handler_value)
+      state(Stream& stream_value, socket_deadline<Socket>& deadline_value, beast::file& file_value,
+            std::uint64_t length_value, details::completion_callback handler_value)
         : stream{stream_value}
         , deadline{deadline_value}
         , file{file_value}
@@ -580,7 +581,7 @@ public:
         handler(ec);
       }
       Stream& stream;
-      socket_deadline& deadline;
+      socket_deadline<Socket>& deadline;
       beast::file& file;
       std::uint64_t remaining;
       details::completion_callback handler;
@@ -685,17 +686,17 @@ private:
   }
 
   Stream& m_stream;
-  socket_deadline& m_deadline;
+  socket_deadline<Socket>& m_deadline;
   std::chrono::seconds m_timeout;
   net::any_completion_executor m_completion_executor;
   serializer_storage m_serializer;
 };
 
-template<typename Stream>
-class request_loop final : public std::enable_shared_from_this<request_loop<Stream>> {
+template<typename Stream, typename Socket>
+class request_loop final : public std::enable_shared_from_this<request_loop<Stream, Socket>> {
 public:
-  request_loop(const details::application_impl& application, settings config, Stream& stream,
-               net::ip::tcp::socket& socket, std::uint64_t listener_id, const serveza::connection_info* connection)
+  request_loop(const details::application_impl& application, settings config, Stream& stream, Socket& socket,
+               std::uint64_t listener_id, const serveza::connection_info* connection)
     : m_application{application}
     , m_config{std::move(config)}
     , m_deadline{socket}
@@ -837,8 +838,8 @@ private:
 
   const details::application_impl& m_application;
   settings m_config;
-  socket_deadline m_deadline;
-  beast_transport<Stream> m_transport;
+  socket_deadline<Socket> m_deadline;
+  beast_transport<Stream, Socket> m_transport;
   beast::flat_buffer m_buffer;
   std::optional<details::parser_type> m_parser;
   std::optional<details::request_state> m_state;
@@ -877,8 +878,8 @@ private:
   {
     m_deadline.cancel();
     if (handshakeEc) return finish(expected_disconnect(handshakeEc) ? sys::error_code{} : handshakeEc);
-    m_loop = std::make_shared<request_loop<decltype(m_stream)>>(m_application, m_config, m_stream, m_ctx.socket(),
-                                                                m_ctx.listener_id(), &m_ctx.info());
+    m_loop = std::make_shared<request_loop<decltype(m_stream), net::ip::tcp::socket>>(
+        m_application, m_config, m_stream, m_ctx.socket(), m_ctx.listener_id(), &m_ctx.info());
     m_loop->start([self = shared_from_this()](sys::error_code requestEc) { self->requests_completed(requestEc); });
   }
 
@@ -906,9 +907,9 @@ private:
   settings m_config;
   serveza::session_context<net::ip::tcp>& m_ctx;
   net::ssl::stream<net::ip::tcp::socket&> m_stream;
-  socket_deadline m_deadline;
+  socket_deadline<net::ip::tcp::socket> m_deadline;
   completion_handler m_handler;
-  std::shared_ptr<request_loop<decltype(m_stream)>> m_loop;
+  std::shared_ptr<request_loop<decltype(m_stream), net::ip::tcp::socket>> m_loop;
 };
 #endif
 
@@ -923,11 +924,29 @@ http_session::http_session(application app)
 
 void http_session::do_async_run(serveza::session_context<protocol_type>& ctx, completion_handler handler)
 {
-  auto operation = std::make_shared<request_loop<net::ip::tcp::socket>>(*m_application.m_impl, m_settings, ctx.socket(),
-                                                                        ctx.socket(), ctx.listener_id(), &ctx.info());
+  auto operation = std::make_shared<request_loop<net::ip::tcp::socket, net::ip::tcp::socket>>(
+      *m_application.m_impl, m_settings, ctx.socket(), ctx.socket(), ctx.listener_id(), &ctx.info());
   operation->start(
       [operation = std::move(operation), handler = std::move(handler)](sys::error_code ec) mutable { handler(ec); });
 }
+
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+local_http_session::local_http_session(application app)
+  : m_application{std::move(app)}
+{
+  if (!m_application.m_impl) throw std::invalid_argument{"local_http_session requires a built application"};
+  m_settings = m_application.m_impl->config();
+}
+
+void local_http_session::do_async_run(serveza::session_context<protocol_type>& ctx, completion_handler handler)
+{
+  using socket_type = protocol_type::socket;
+  auto operation = std::make_shared<request_loop<socket_type, socket_type>>(
+      *m_application.m_impl, m_settings, ctx.socket(), ctx.socket(), ctx.listener_id(), &ctx.info());
+  operation->start(
+      [operation = std::move(operation), handler = std::move(handler)](sys::error_code ec) mutable { handler(ec); });
+}
+#endif
 
 #if SERVEZA_WEB_USE_SSL
 https_session::https_session(application app, net::ssl::context& ssl_ctx)

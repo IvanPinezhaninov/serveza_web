@@ -23,6 +23,10 @@
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+#include <boost/asio/local/stream_protocol.hpp>
+#endif
+
 #if SERVEZA_WEB_USE_SSL
 #include <boost/asio/ssl/context.hpp>
 #endif
@@ -58,6 +62,32 @@ private:
   application m_application;
   settings m_settings;
 };
+
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+/** @brief Serveza local-stream session that runs an immutable HTTP application. */
+class SERVEZA_WEB_API local_http_session final {
+public:
+  /** @brief Transport protocol accepted by this session. */
+  using protocol_type = boost::asio::local::stream_protocol;
+
+  /** @brief Creates an HTTP session factory sharing @p app with every accepted connection. */
+  explicit local_http_session(application app);
+
+  /** @brief Runs the HTTP/1 request loop. Completion signature: `void(error_code)`. */
+  template<typename CompletionToken>
+  auto async_run(serveza::session_context<protocol_type>& ctx, CompletionToken&& token)
+  {
+    return boost::asio::async_initiate<CompletionToken, void(boost::system::error_code)>(
+        [this, &ctx](auto handler) mutable { do_async_run(ctx, completion_handler{std::move(handler)}); }, token);
+  }
+
+private:
+  void do_async_run(serveza::session_context<protocol_type>& ctx, completion_handler handler);
+
+  application m_application;
+  settings m_settings;
+};
+#endif
 
 #if SERVEZA_WEB_USE_SSL
 /** @brief Serveza TCP session that runs an immutable HTTP application over TLS. */

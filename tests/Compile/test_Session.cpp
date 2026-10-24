@@ -16,3 +16,17 @@
 ******************************************************************************/
 
 #include <serveza/web/session.h>
+
+#include <type_traits>
+
+#include <boost/asio/ip/tcp.hpp>
+
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+#include <boost/asio/local/stream_protocol.hpp>
+#endif
+
+static_assert(std::is_same_v<serveza::web::http_session::protocol_type, boost::asio::ip::tcp>);
+
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+static_assert(std::is_same_v<serveza::web::local_http_session::protocol_type, boost::asio::local::stream_protocol>);
+#endif

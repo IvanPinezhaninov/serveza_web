@@ -30,6 +30,7 @@ class application_impl;
 
 class router;
 class http_session;
+class local_http_session;
 #if SERVEZA_WEB_USE_SSL
 class https_session;
 #endif
@@ -46,6 +47,7 @@ public:
 private:
   friend class router;
   friend class http_session;
+  friend class local_http_session;
 #if SERVEZA_WEB_USE_SSL
   friend class https_session;
 #endif

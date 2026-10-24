@@ -19,6 +19,7 @@ add_executable(
   ServezaWebIntegrationTests
   test_Http.cpp
   test_HttpLifecycle.cpp
+  test_LocalHttp.cpp
   test_StaticFiles.cpp
   test_WebSocket.cpp
 )
