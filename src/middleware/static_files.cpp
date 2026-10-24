@@ -21,11 +21,27 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <limits>
+#include <optional>
+#include <ratio>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+#include <boost/beast/core/file.hpp>
 #include <boost/beast/http.hpp>
 
 #include <serveza/web/context.h>
@@ -100,14 +116,6 @@ bool contains_hidden_component(const std::filesystem::path& value)
   return false;
 }
 
-std::chrono::system_clock::time_point system_time(std::filesystem::file_time_type value)
-{
-  const auto file_now = std::filesystem::file_time_type::clock::now();
-  const auto system_now = std::chrono::system_clock::now();
-  return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-      system_now + std::chrono::duration_cast<std::chrono::system_clock::duration>(value - file_now));
-}
-
 template<typename T>
 void append_hex(std::string& output, T value)
 {
@@ -118,7 +126,7 @@ void append_hex(std::string& output, T value)
   output.append(buffer, converted.ptr);
 }
 
-std::string make_etag(std::filesystem::file_time_type modified, std::uintmax_t size)
+std::string make_etag(std::chrono::system_clock::time_point modified, std::uint64_t size)
 {
   const auto ticks = modified.time_since_epoch().count();
   using unsigned_ticks = std::make_unsigned_t<std::remove_cv_t<decltype(ticks)>>;
@@ -129,6 +137,91 @@ std::string make_etag(std::filesystem::file_time_type modified, std::uintmax_t s
   result.push_back('-');
   append_hex(result, size);
   result.push_back('"');
+  return result;
+}
+
+struct opened_file final {
+  boost::beast::file value;
+  std::uint64_t size{};
+  std::chrono::system_clock::time_point modified;
+};
+
+#if defined(_WIN32)
+
+bool read_opened_file_info(boost::beast::file& file, const std::filesystem::path& path, opened_file& result) noexcept
+{
+  BY_HANDLE_FILE_INFORMATION opened_info{};
+  if (!::GetFileInformationByHandle(file.native_handle(), &opened_info) ||
+      (opened_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+    return false;
+
+  const auto path_handle = ::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                         FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+  if (path_handle == INVALID_HANDLE_VALUE) return false;
+  BY_HANDLE_FILE_INFORMATION path_info{};
+  const bool path_read = ::GetFileInformationByHandle(path_handle, &path_info) != 0;
+  ::CloseHandle(path_handle);
+  if (!path_read || opened_info.dwVolumeSerialNumber != path_info.dwVolumeSerialNumber ||
+      opened_info.nFileIndexHigh != path_info.nFileIndexHigh || opened_info.nFileIndexLow != path_info.nFileIndexLow)
+    return false;
+
+  result.size = (static_cast<std::uint64_t>(opened_info.nFileSizeHigh) << 32U) | opened_info.nFileSizeLow;
+  const auto windows_ticks = (static_cast<std::uint64_t>(opened_info.ftLastWriteTime.dwHighDateTime) << 32U) |
+                             opened_info.ftLastWriteTime.dwLowDateTime;
+  constexpr std::uint64_t windows_epoch_ticks = 116444736000000000ULL;
+  if (windows_ticks < windows_epoch_ticks) return false;
+  using windows_duration = std::chrono::duration<std::uint64_t, std::ratio<1, 10000000>>;
+  result.modified =
+      std::chrono::system_clock::time_point{std::chrono::duration_cast<std::chrono::system_clock::duration>(
+          windows_duration{windows_ticks - windows_epoch_ticks})};
+  return true;
+}
+
+#else
+
+bool read_opened_file_info(boost::beast::file& file, const std::filesystem::path& path, opened_file& result) noexcept
+{
+#if BOOST_BEAST_USE_POSIX_FILE
+  const int descriptor = file.native_handle();
+#else
+  const int descriptor = ::fileno(file.native_handle());
+#endif
+  struct stat opened_info {};
+  struct stat path_info {};
+  if (descriptor < 0 || ::fstat(descriptor, &opened_info) != 0 || ::stat(path.c_str(), &path_info) != 0 ||
+      !S_ISREG(opened_info.st_mode) || opened_info.st_dev != path_info.st_dev ||
+      opened_info.st_ino != path_info.st_ino || opened_info.st_size < 0)
+    return false;
+
+  result.size = static_cast<std::uint64_t>(opened_info.st_size);
+#if defined(__APPLE__)
+  const auto timestamp = opened_info.st_mtimespec;
+#else
+  const auto timestamp = opened_info.st_mtim;
+#endif
+  result.modified =
+      std::chrono::system_clock::time_point{std::chrono::duration_cast<std::chrono::system_clock::duration>(
+          std::chrono::seconds{timestamp.tv_sec} + std::chrono::nanoseconds{timestamp.tv_nsec})};
+  return true;
+}
+
+#endif
+
+std::optional<opened_file> open_verified_file(const std::filesystem::path& root, const std::filesystem::path& candidate,
+                                              bool allow_hidden)
+{
+  opened_file result;
+  boost::system::error_code file_ec;
+  const auto path_text = candidate.string();
+  result.value.open(path_text.c_str(), boost::beast::file_mode::scan, file_ec);
+  if (file_ec) return std::nullopt;
+
+  std::error_code fs_ec;
+  const auto verified = std::filesystem::canonical(candidate, fs_ec);
+  if (fs_ec || !is_within(root, verified) ||
+      (!allow_hidden && contains_hidden_component(verified.lexically_relative(root))) ||
+      !read_opened_file_info(result.value, candidate, result))
+    return std::nullopt;
   return result;
 }
 
@@ -432,18 +525,14 @@ void static_files::operator()(request_context& ctx, web::continuation& next, com
     return;
   }
 
-  const auto file_size = std::filesystem::file_size(candidate, fsEc);
-  if (fsEc) {
+  auto opened = open_verified_file(m_root, candidate, m_options.serve_hidden_files);
+  if (!opened) {
     next(std::move(handler));
     return;
   }
-  const auto modified_file_time = std::filesystem::last_write_time(candidate, fsEc);
-  if (fsEc) {
-    next(std::move(handler));
-    return;
-  }
-  const auto modified = std::chrono::time_point_cast<std::chrono::seconds>(system_time(modified_file_time));
-  const auto etag = make_etag(modified_file_time, file_size);
+  const auto file_size = opened->size;
+  const auto modified = std::chrono::time_point_cast<std::chrono::seconds>(opened->modified);
+  const auto etag = make_etag(opened->modified, file_size);
   const auto last_modified = web::details::format_http_date(modified);
 
   auto& response_headers = ctx.response_headers();
@@ -483,24 +572,24 @@ void static_files::operator()(request_context& ctx, web::continuation& next, com
         const auto end = range.offset + range.length - 1;
         response_headers.set(http::field::content_range, "bytes " + std::to_string(range.offset) + '-' +
                                                              std::to_string(end) + '/' + std::to_string(file_size));
-        ctx.async_send_file_range(http::status::partial_content, candidate, range.offset, range.length,
-                                  m_options.content_types.find(candidate),
-                                  [&ctx, &next, original_headers,
-                                   handler = std::move(handler)](boost::system::error_code ec, bool sent) mutable {
-                                    if (ec || sent) {
-                                      handler(ec);
-                                      return;
-                                    }
-                                    ctx.response_headers() = original_headers;
-                                    next(std::move(handler));
-                                  });
+        ctx.do_async_send_file_range(http::status::partial_content, std::move(opened->value), candidate, range.offset,
+                                     range.length, std::string{m_options.content_types.find(candidate)},
+                                     [&ctx, &next, original_headers,
+                                      handler = std::move(handler)](boost::system::error_code ec, bool sent) mutable {
+                                       if (ec || sent) {
+                                         handler(ec);
+                                         return;
+                                       }
+                                       ctx.response_headers() = original_headers;
+                                       next(std::move(handler));
+                                     });
         return;
       }
     }
   }
 
-  ctx.async_send_file(
-      http::status::ok, candidate, m_options.content_types.find(candidate),
+  ctx.do_async_send_file(
+      http::status::ok, std::move(opened->value), candidate, std::string{m_options.content_types.find(candidate)},
       [&ctx, &next, original_headers, handler = std::move(handler)](boost::system::error_code ec, bool sent) mutable {
         if (ec || sent) {
           handler(ec);

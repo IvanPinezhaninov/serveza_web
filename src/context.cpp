@@ -416,12 +416,22 @@ public:
     , m_handler{std::move(handler)}
   {}
 
+  file_sender(details::request_state& state, http::status status, boost::beast::file file,
+              std::filesystem::path observed_path, std::uint64_t offset, std::optional<std::uint64_t> length,
+              std::string content_type, request_context::bool_handler handler)
+    : file_sender{state, status, std::move(observed_path), offset, length, std::move(content_type), std::move(handler)}
+  {
+    m_file = std::move(file);
+  }
+
   void start()
   {
     sys::error_code fileEc;
-    const std::string path_text = m_path.string();
     if (m_length) {
-      m_file.open(path_text.c_str(), boost::beast::file_mode::scan, fileEc);
+      if (!m_file.is_open()) {
+        const std::string path_text = m_path.string();
+        m_file.open(path_text.c_str(), boost::beast::file_mode::scan, fileEc);
+      }
       if (!fileEc) {
         const std::uint64_t size = m_file.size(fileEc);
         if (!fileEc && (m_offset >= size || *m_length > size - m_offset))
@@ -430,7 +440,12 @@ public:
       if (!fileEc) m_file.seek(m_offset, fileEc);
     } else {
       m_file_response.emplace(m_status, m_state.parser.get().version());
-      m_file_response->body().open(path_text.c_str(), boost::beast::file_mode::scan, fileEc);
+      if (m_file.is_open()) {
+        m_file_response->body().reset(std::move(m_file), fileEc);
+      } else {
+        const std::string path_text = m_path.string();
+        m_file_response->body().open(path_text.c_str(), boost::beast::file_mode::scan, fileEc);
+      }
     }
     if (fileEc) {
       post_complete(m_state.io.get_executor(), std::move(m_handler), sys::error_code{}, false);
@@ -781,6 +796,18 @@ void request_context::do_async_send_file(http::status status, std::filesystem::p
       ->start();
 }
 
+void request_context::do_async_send_file(http::status status, boost::beast::file file,
+                                         std::filesystem::path observed_path, std::string content_type,
+                                         bool_handler handler)
+{
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
+  if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
+  validate_response_headers(m_state->response_fields);
+  std::make_shared<file_sender>(*m_state, status, std::move(file), std::move(observed_path), 0, std::nullopt,
+                                std::move(content_type), std::move(handler))
+      ->start();
+}
+
 void request_context::do_async_send_file_range(http::status status, std::filesystem::path path, std::uint64_t offset,
                                                std::uint64_t length, std::string content_type, bool_handler handler)
 {
@@ -792,6 +819,21 @@ void request_context::do_async_send_file_range(http::status status, std::filesys
   validate_response_headers(m_state->response_fields);
   std::make_shared<file_sender>(*m_state, status, std::move(path), offset, length, std::move(content_type),
                                 std::move(handler))
+      ->start();
+}
+
+void request_context::do_async_send_file_range(http::status status, boost::beast::file file,
+                                               std::filesystem::path observed_path, std::uint64_t offset,
+                                               std::uint64_t length, std::string content_type, bool_handler handler)
+{
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
+  if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
+  if (length == 0) throw std::invalid_argument{"file response range must not be empty"};
+  if (length > std::numeric_limits<std::size_t>::max())
+    throw std::length_error{"file response range is too large for this platform"};
+  validate_response_headers(m_state->response_fields);
+  std::make_shared<file_sender>(*m_state, status, std::move(file), std::move(observed_path), offset, length,
+                                std::move(content_type), std::move(handler))
       ->start();
 }
 
