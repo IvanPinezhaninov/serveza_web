@@ -41,6 +41,13 @@ function(serveza_web_add_coverage_target)
     list(APPEND serveza_web_coverage_targets ServezaWebCoroutineIntegrationTests)
   endif()
 
+  if(TARGET ServezaWebHttpsIntegrationTests)
+    list(APPEND serveza_web_coverage_inputs
+      "${PROJECT_BINARY_DIR}/tests/Integration/Https/CMakeFiles/ServezaWebHttpsIntegrationTests.dir"
+    )
+    list(APPEND serveza_web_coverage_targets ServezaWebHttpsIntegrationTests)
+  endif()
+
   add_custom_target(
     ServezaWebCoverage
     COMMAND ${CMAKE_COMMAND}
