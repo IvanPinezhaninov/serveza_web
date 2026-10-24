@@ -106,26 +106,31 @@ boost::asio::any_io_executor websocket_connection::get_executor() const
 
 void websocket_connection::do_async_read(read_handler handler)
 {
+  handler = details::enable_cancellation(*m_io, std::move(handler));
   m_io->async_read(std::move(handler));
 }
 
 void websocket_connection::do_async_write_text(std::string value, completion_handler handler)
 {
+  handler = details::enable_cancellation(*m_io, std::move(handler));
   m_io->async_write_text(std::move(value), std::move(handler));
 }
 
 void websocket_connection::do_async_write_binary(byte_buffer value, completion_handler handler)
 {
+  handler = details::enable_cancellation(*m_io, std::move(handler));
   m_io->async_write_binary(std::move(value), std::move(handler));
 }
 
 void websocket_connection::do_async_ping(std::string value, completion_handler handler)
 {
+  handler = details::enable_cancellation(*m_io, std::move(handler));
   m_io->async_ping(std::move(value), std::move(handler));
 }
 
 void websocket_connection::do_async_close(std::uint16_t code, std::string reason, completion_handler handler)
 {
+  handler = details::enable_cancellation(*m_io, std::move(handler));
   m_io->async_close(code, std::move(reason), std::move(handler));
 }
 

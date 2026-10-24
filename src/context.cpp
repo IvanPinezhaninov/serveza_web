@@ -674,6 +674,7 @@ void request_context::validate_websocket_accept(const websocket_options& options
 
 void request_context::do_async_read_body(body_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (m_state->body_access == details::request_body_access::buffered) {
     post_complete(get_executor(), std::move(handler), sys::error_code{}, std::string_view{m_state->body});
     return;
@@ -690,6 +691,7 @@ void request_context::do_async_read_body(body_handler handler)
 
 void request_context::do_async_read_body_bytes(byte_body_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   do_async_read_body([this, handler = std::move(handler)](sys::error_code ec, std::string_view body) mutable {
     complete(get_executor(), std::move(handler), ec, byte_view{body});
   });
@@ -698,6 +700,7 @@ void request_context::do_async_read_body_bytes(byte_body_handler handler)
 void request_context::do_async_read_body_chunks(void* consumer, body_chunk_callback callback,
                                                 completion_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (m_state->body_access != details::request_body_access::untouched)
     throw std::logic_error{"request body was already consumed"};
   if (m_state->response != details::response_progress::idle)
@@ -708,6 +711,7 @@ void request_context::do_async_read_body_chunks(void* consumer, body_chunk_callb
 
 void request_context::do_async_discard_body(completion_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (m_state->parser.is_done() || m_state->force_close) {
     post_complete(get_executor(), std::move(handler), sys::error_code{});
     return;
@@ -737,6 +741,7 @@ void request_context::close_after_response() noexcept
 void request_context::do_async_send(http::status status, std::string body, std::string_view content_type,
                                     completion_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   validate_response_headers(m_state->response_fields);
   start_buffered_send<details::string_response>(*m_state, status, std::move(body), content_type, std::move(handler));
@@ -745,6 +750,7 @@ void request_context::do_async_send(http::status status, std::string body, std::
 void request_context::do_async_send(http::status status, byte_buffer body, std::string_view content_type,
                                     completion_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   validate_response_headers(m_state->response_fields);
   start_buffered_send<details::byte_response>(*m_state, status, std::move(body), content_type, std::move(handler));
@@ -753,6 +759,7 @@ void request_context::do_async_send(http::status status, byte_buffer body, std::
 void request_context::do_async_send_chunked(http::status status, std::string content_type, void* producer,
                                             chunked_response_callback callback, completion_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   if (version() < 11) throw std::logic_error{"chunked responses require HTTP/1.1 or newer"};
   if (status == http::status::no_content || status == http::status::not_modified ||
@@ -766,6 +773,7 @@ void request_context::do_async_send_chunked(http::status status, std::string con
 void request_context::do_async_send_file(http::status status, std::filesystem::path path, std::string content_type,
                                          bool_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   validate_response_headers(m_state->response_fields);
   std::make_shared<file_sender>(*m_state, status, std::move(path), 0, std::nullopt, std::move(content_type),
@@ -776,6 +784,7 @@ void request_context::do_async_send_file(http::status status, std::filesystem::p
 void request_context::do_async_send_file_range(http::status status, std::filesystem::path path, std::uint64_t offset,
                                                std::uint64_t length, std::string content_type, bool_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   if (length == 0) throw std::invalid_argument{"file response range must not be empty"};
   if (length > std::numeric_limits<std::size_t>::max())
@@ -794,6 +803,7 @@ bool request_context::websocket_upgrade_requested() const noexcept
 void request_context::do_async_accept_websocket(void* endpoint, websocket_callback callback, websocket_options options,
                                                 completion_handler handler)
 {
+  handler = details::enable_cancellation(m_state->io, std::move(handler));
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   if (!websocket_upgrade_requested()) throw std::logic_error{"request is not a WebSocket upgrade"};
   details::validate_websocket_options(options);

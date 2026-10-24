@@ -204,6 +204,11 @@ public:
     return m_stream.get_executor();
   }
 
+  void cancel() noexcept override
+  {
+    abort_socket(net::error::operation_aborted);
+  }
+
   void async_accept(const details::parser_type& parser, const http::fields& response_fields, completion_handler handler)
   {
     m_stream.set_option(websocket::stream_base::decorator([&response_fields](websocket::response_type& response) {
@@ -528,6 +533,12 @@ public:
   {
     return m_completion_executor;
   }
+
+  void cancel() noexcept override
+  {
+    sys::error_code ignored;
+    beast::get_lowest_layer(m_stream).cancel(ignored);
+  }
   void async_read_header(beast::flat_buffer& buffer, details::parser_type& parser,
                          details::completion_callback handler) override
   {
@@ -696,8 +707,18 @@ public:
 
   void start(completion_handler handler)
   {
-    m_handler = std::move(handler);
+    m_handler = details::enable_cancellation(*this, std::move(handler));
     read_header();
+  }
+
+  [[nodiscard]] net::any_io_executor get_executor()
+  {
+    return m_transport.get_executor();
+  }
+
+  void cancel() noexcept
+  {
+    m_transport.cancel();
   }
 
   [[nodiscard]] bool upgraded() const noexcept
@@ -856,10 +877,22 @@ public:
 
   void start()
   {
+    m_handler = details::enable_cancellation(*this, std::move(m_handler));
     m_deadline.arm(m_config.tls_handshake_timeout);
     m_stream.async_handshake(net::ssl::stream_base::server, [self = shared_from_this()](sys::error_code handshakeEc) {
       self->handshaken(handshakeEc);
     });
+  }
+
+  [[nodiscard]] net::any_io_executor get_executor()
+  {
+    return m_ctx.get_executor();
+  }
+
+  void cancel() noexcept
+  {
+    sys::error_code ignored;
+    m_ctx.socket().cancel(ignored);
   }
 
 private:
@@ -916,8 +949,8 @@ void http_session::do_async_run(serveza::session_context<protocol_type>& ctx, co
 {
   auto operation = std::make_shared<request_loop<net::ip::tcp::socket, net::ip::tcp::socket>>(
       *m_application.m_impl, m_settings, ctx.socket(), ctx.socket(), ctx.listener_id(), &ctx.info());
-  operation->start(
-      [operation = std::move(operation), handler = std::move(handler)](sys::error_code ec) mutable { handler(ec); });
+  auto completion = details::retain_completion(ctx.get_executor(), std::move(handler), operation);
+  operation->start(completion_handler{std::move(completion)});
 }
 
 #if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
@@ -933,8 +966,8 @@ void local_http_session::do_async_run(serveza::session_context<protocol_type>& c
   using socket_type = protocol_type::socket;
   auto operation = std::make_shared<request_loop<socket_type, socket_type>>(
       *m_application.m_impl, m_settings, ctx.socket(), ctx.socket(), ctx.listener_id(), &ctx.info());
-  operation->start(
-      [operation = std::move(operation), handler = std::move(handler)](sys::error_code ec) mutable { handler(ec); });
+  auto completion = details::retain_completion(ctx.get_executor(), std::move(handler), operation);
+  operation->start(completion_handler{std::move(completion)});
 }
 #endif
 

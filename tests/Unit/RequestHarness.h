@@ -69,6 +69,16 @@ public:
     return m_completionExecutor;
   }
 
+  void cancel() noexcept override
+  {
+    ++cancelCount;
+    if (pendingRead) {
+      auto handler = std::move(*pendingRead);
+      pendingRead.reset();
+      complete(std::move(handler), boost::asio::error::operation_aborted);
+    }
+  }
+
   void async_read_header(boost::beast::flat_buffer&, serveza::web::details::parser_type&,
                          serveza::web::details::completion_callback) override
   {
@@ -78,6 +88,10 @@ public:
   void async_read_some(boost::beast::flat_buffer&, serveza::web::details::parser_type& parser,
                        serveza::web::details::completion_callback handler) override
   {
+    if (holdReads) {
+      pendingRead.emplace(std::move(handler));
+      return;
+    }
     if (readEc) return complete(std::move(handler), *readEc);
     if (bodyOffset >= bodyInput.size()) throw std::logic_error{"unexpected body read"};
 
@@ -186,6 +200,9 @@ public:
   std::size_t maximumReadSize{std::numeric_limits<std::size_t>::max()};
   std::optional<boost::system::error_code> readEc;
   WriteFailure writeFailure{WriteFailure::none};
+  std::size_t cancelCount{};
+  bool holdReads{};
+  std::optional<serveza::web::details::completion_callback> pendingRead;
 
 private:
   void complete(serveza::web::details::completion_callback handler, boost::system::error_code ec)

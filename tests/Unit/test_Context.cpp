@@ -16,11 +16,14 @@
 ******************************************************************************/
 
 #include <cstddef>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/deferred.hpp>
 #include <boost/beast/http.hpp>
 
@@ -35,6 +38,53 @@
 namespace {
 
 namespace http = boost::beast::http;
+
+TEST(RequestContextCancellationTest, CancelsPendingTransportOperation)
+{
+  RequestHarness request{http::verb::post, "/", true, "payload"};
+  request.transport.holdReads = true;
+  boost::asio::cancellation_signal signal;
+  boost::system::error_code result;
+  bool completed{};
+  auto ctx = request.state().make_context();
+
+  ctx.async_read_body(
+      boost::asio::bind_cancellation_slot(signal.slot(), [&](boost::system::error_code ec, std::string_view) {
+        result = ec;
+        completed = true;
+      }));
+  EXPECT_TRUE(signal.slot().has_handler());
+  signal.emit(boost::asio::cancellation_type::total);
+  request.io.run();
+
+  EXPECT_TRUE(completed);
+  EXPECT_EQ(result, boost::asio::error::operation_aborted);
+  EXPECT_EQ(request.transport.cancelCount, 1U);
+  signal.emit(boost::asio::cancellation_type::total);
+  request.io.restart();
+  request.io.run();
+  EXPECT_EQ(request.transport.cancelCount, 1U);
+}
+
+TEST(RequestContextCancellationTest, DetachesSlotBeforeInvokingCompletion)
+{
+  RequestHarness request{http::verb::post, "/", true, "payload"};
+  auto signal = std::make_unique<boost::asio::cancellation_signal>();
+  bool completed{};
+  auto ctx = request.state().make_context();
+
+  ctx.async_read_body(
+      boost::asio::bind_cancellation_slot(signal->slot(), [&](boost::system::error_code ec, std::string_view body) {
+        EXPECT_FALSE(ec);
+        EXPECT_EQ(body, "payload");
+        signal.reset();
+        completed = true;
+      }));
+  request.io.run();
+
+  EXPECT_TRUE(completed);
+  EXPECT_EQ(signal, nullptr);
+}
 
 TEST(RequestContextTest, ExposesRequestAndConnectionMetadata)
 {
