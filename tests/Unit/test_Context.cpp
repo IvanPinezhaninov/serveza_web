@@ -149,6 +149,23 @@ TEST(RequestContextTest, CloseAfterResponseOverridesKeepAlive)
   EXPECT_FALSE(request.transport.response->keep_alive());
 }
 
+TEST(RequestContextTest, CommitsWebSocketUpgradeState)
+{
+  RequestHarness request;
+  request.setRequestHeader(http::field::connection, "upgrade");
+  request.setRequestHeader(http::field::upgrade, "websocket");
+  request.run([](serveza::web::request_context& ctx, boost::asio::yield_context yield) {
+    ctx.async_accept_websocket([](serveza::web::websocket_connection&,
+                                  serveza::web::completion_handler handler) { handler(boost::system::error_code{}); },
+                               serveza::web::websocket_options{}, yield);
+  });
+
+  EXPECT_TRUE(request.transport.websocketAccepted);
+  EXPECT_TRUE(request.state().websocket_upgraded);
+  EXPECT_EQ(request.state().response, serveza::web::details::response_progress::completed);
+  EXPECT_EQ(request.state().response_status, http::status::switching_protocols);
+}
+
 TEST(RequestContextBodyTest, EmptyBodyCanBeStreamedExactlyOnce)
 {
   RequestHarness request{http::verb::post};

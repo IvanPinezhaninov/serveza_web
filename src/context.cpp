@@ -734,9 +734,15 @@ void request_context::do_async_accept_websocket(void* endpoint, websocket_callba
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   if (!websocket_upgrade_requested()) throw std::logic_error{"request is not a WebSocket upgrade"};
   details::validate_websocket_options(options);
+  m_state->websocket_upgraded = true;
   m_state->start_response(http::status::switching_protocols, 0);
+  details::observe_response_headers(*m_state, http::status::switching_protocols, m_state->response_fields,
+                                    middleware::response_body_kind::websocket, std::nullopt);
   m_state->io.async_accept_websocket(m_state->parser, m_state->response_fields, options, endpoint, callback,
-                                     std::move(handler));
+                                     [state = m_state, handler = std::move(handler)](sys::error_code ec) mutable {
+                                       if (!ec) state->complete_response();
+                                       handler(ec);
+                                     });
 }
 
 std::exception_ptr request_context::take_exception() noexcept
