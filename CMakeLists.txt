@@ -23,7 +23,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       "Disable Qt Creator's Qt Maintenance Tool package provider" FORCE)
 endif()
 
-project(serveza_web LANGUAGES CXX VERSION 0.1.0)
+project(serveza_web LANGUAGES CXX VERSION 0.2.0)
 
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(GNUInstallDirs)
