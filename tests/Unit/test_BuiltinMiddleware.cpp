@@ -333,6 +333,13 @@ TEST(SecurityHeadersMiddlewareTest, AppliesConfiguredHeadersBeforeNext)
   EXPECT_EQ((*request.transport.response)["Strict-Transport-Security"], "max-age=31536000");
 }
 
+TEST(SecurityHeadersMiddlewareTest, RejectsHeaderInjectionAtConstruction)
+{
+  middleware::security_headers_options options;
+  options.content_security_policy = "default-src 'self'\r\nInjected: yes";
+  EXPECT_THROW(middleware::security_headers{options}, std::invalid_argument);
+}
+
 TEST(CorsMiddlewareTest, ContinuesWithoutHeadersForDisallowedOrigin)
 {
   middleware::cors_options options;

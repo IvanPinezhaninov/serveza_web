@@ -17,6 +17,9 @@
 
 #include <serveza/web/middleware/security_headers.h>
 
+#include <algorithm>
+#include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include <serveza/web/context.h>
@@ -26,9 +29,27 @@
 
 namespace serveza::web::middleware {
 
+namespace {
+
+void validate_value(std::string_view value)
+{
+  if (std::any_of(value.begin(), value.end(), [](char character) {
+        const auto byte = static_cast<unsigned char>(character);
+        return byte == 0x7fU || (byte < 0x20U && byte != '\t');
+      }))
+    throw std::invalid_argument{"security header value is invalid"};
+}
+
+} // namespace
+
 security_headers::security_headers(security_headers_options options)
   : m_options{std::move(options)}
-{}
+{
+  validate_value(m_options.referrer_policy);
+  validate_value(m_options.content_security_policy);
+  validate_value(m_options.permissions_policy);
+  validate_value(m_options.strict_transport_security);
+}
 
 void security_headers::operator()(request_context& ctx, continuation& next, completion_handler handler) const
 {

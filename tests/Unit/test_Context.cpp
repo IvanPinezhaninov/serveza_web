@@ -76,6 +76,23 @@ TEST(RequestContextTest, CommitsResponseMetadataAndHeaders)
   EXPECT_EQ((*request.transport.response)["X-Test"], "response");
 }
 
+TEST(RequestContextTest, RejectsInvalidResponseHeaderNamesAndValues)
+{
+  const auto expectInvalid = [](std::string_view name, std::string_view value) {
+    RequestHarness request;
+    request.run([&](serveza::web::request_context& ctx, boost::asio::yield_context) {
+      ctx.response_headers().set(boost::beast::string_view{name.data(), name.size()},
+                                 boost::beast::string_view{value.data(), value.size()});
+      EXPECT_THROW(ctx.async_send_status(http::status::ok, [](boost::system::error_code) {}), std::invalid_argument);
+    });
+    EXPECT_FALSE(request.transport.response);
+  };
+
+  expectInvalid("Bad Name", "value");
+  expectInvalid("X-Test", "safe\r\nInjected: yes");
+  expectInvalid("X-Test", std::string_view{"value\0hidden", 12});
+}
+
 TEST(RequestContextTest, RetainsExplicitContentTypeForDeferredInitiation)
 {
   RequestHarness request;
