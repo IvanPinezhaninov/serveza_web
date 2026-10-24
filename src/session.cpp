@@ -305,18 +305,17 @@ public:
 
   void async_finish(completion_handler handler)
   {
-    if (!m_stream.is_open()) {
-      mark_closed();
-      post_complete(get_executor(), std::move(handler), sys::error_code{});
-      return;
-    }
     async_close(static_cast<std::uint16_t>(websocket::close_code::normal), {}, std::move(handler));
   }
 
   void async_abort(sys::error_code ec, completion_handler handler) noexcept
   {
+    {
+      std::lock_guard lock{m_mutex};
+      m_accepting = false;
+      m_close_handler.emplace(std::move(handler));
+    }
     abort_socket(ec ? ec : net::error::operation_aborted);
-    post_complete(get_executor(), std::move(handler), ec);
   }
 
 private:
@@ -402,28 +401,35 @@ private:
   void maybe_close()
   {
     std::optional<completion_handler> handler;
+    sys::error_code completion_ec;
     websocket::close_reason reason;
     {
       std::lock_guard lock{m_mutex};
-      if (m_write_in_progress || !m_queue.empty() || !m_close_handler) return;
+      if (m_write_in_progress || !m_queue.empty() || !m_close_handler || m_close_in_progress) return;
       if (!m_stream.is_open()) {
         handler = std::move(m_close_handler);
         m_close_handler.reset();
+        completion_ec = std::exchange(m_abort_error, {});
       } else {
         reason = websocket::close_reason{static_cast<websocket::close_code>(m_close_code),
                                          beast::string_view{m_close_reason.data(), m_close_reason.size()}};
+        m_close_in_progress = true;
       }
     }
     if (handler) {
       cancel_close_deadline();
       mark_closed();
-      complete(get_executor(), std::move(*handler), sys::error_code{});
+      post_complete(get_executor(), std::move(*handler), completion_ec);
       return;
     }
-    m_stream.async_close(reason, [self = this->shared_from_this()](sys::error_code ec) {
-      if (ec == websocket::error::closed || ec == net::error::eof || ec == net::error::operation_aborted) ec.clear();
-      self->close_completed(ec);
-    });
+    try {
+      m_stream.async_close(reason, [self = this->shared_from_this()](sys::error_code ec) {
+        if (ec == websocket::error::closed || ec == net::error::eof || ec == net::error::operation_aborted) ec.clear();
+        self->close_completed(ec);
+      });
+    } catch (...) {
+      close_completed(make_error_code(sys::errc::io_error));
+    }
   }
 
   void maybe_close_unlocked()
@@ -436,12 +442,14 @@ private:
     std::optional<completion_handler> handler;
     {
       std::lock_guard lock{m_mutex};
+      m_close_in_progress = false;
+      if (m_abort_error) ec = std::exchange(m_abort_error, {});
       handler = std::move(m_close_handler);
       m_close_handler.reset();
     }
     cancel_close_deadline();
     mark_closed();
-    if (handler) complete(get_executor(), std::move(*handler), ec);
+    if (handler) post_complete(get_executor(), std::move(*handler), ec);
   }
 
   void fail_queue_unlocked(sys::error_code ec)
@@ -487,8 +495,12 @@ private:
       m_accepting = false;
       m_open.store(false, std::memory_order_release);
       fail_queue_unlocked(ec);
-      close_handler = std::move(m_close_handler);
-      m_close_handler.reset();
+      m_abort_error = ec;
+      if (!m_close_in_progress && !m_write_in_progress && !m_pump_scheduled) {
+        close_handler = std::move(m_close_handler);
+        m_close_handler.reset();
+        m_abort_error.clear();
+      }
     }
     sys::error_code ignored;
     auto& socket = beast::get_lowest_layer(m_stream);
@@ -508,9 +520,11 @@ private:
   bool m_accepting{true};
   bool m_pump_scheduled{};
   bool m_write_in_progress{};
+  bool m_close_in_progress{};
   std::atomic_bool m_open{true};
   net::steady_timer m_close_deadline;
   std::optional<completion_handler> m_close_handler;
+  sys::error_code m_abort_error;
   std::uint16_t m_close_code{};
   std::string m_close_reason;
 };

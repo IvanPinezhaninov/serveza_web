@@ -29,6 +29,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <boost/system/errc.hpp>
 
 #include <gtest/gtest.h>
 
@@ -148,4 +149,29 @@ TEST(WebSocketIntegrationTest, CloseTimeoutReleasesAStalledPeer)
   EXPECT_EQ(server.listener()->active_sessions(), 0U);
   EXPECT_FALSE(retainedSender.is_open());
   EXPECT_EQ(retainedSender.try_send_text("late"), web::websocket_send_result::closed);
+}
+
+TEST(WebSocketIntegrationTest, EndpointFailureWaitsForSocketAbort)
+{
+  web::router routes;
+  routes.get("/failure",
+             web::middleware::websocket_upgrade{[](web::websocket_connection&, web::completion_handler handler) {
+               handler(make_error_code(boost::system::errc::permission_denied));
+             }});
+
+  const auto app = std::move(routes).build();
+  ServerHarness server{[app] { return web::http_session{app}; }};
+  net::io_context io;
+  websocket::stream<net::ip::tcp::socket> socket{io};
+  socket.next_layer().connect(net::ip::tcp::endpoint{net::ip::address_v4::loopback(), server.port()});
+  socket.handshake("localhost", "/failure");
+
+  beast::flat_buffer buffer;
+  boost::system::error_code ec;
+  socket.read(buffer, ec);
+  EXPECT_TRUE(ec);
+
+  for (int attempt = 0; attempt < 100 && server.listener()->active_sessions() != 0; ++attempt)
+    std::this_thread::sleep_for(std::chrono::milliseconds{1});
+  EXPECT_EQ(server.listener()->active_sessions(), 0U);
 }
