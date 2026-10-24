@@ -21,6 +21,11 @@ endif()
 
 add_subdirectory(boost)
 
+if(SERVEZA_WEB_USE_BUNDLED_RE2 AND NOT TARGET re2::re2)
+  add_subdirectory(abseil)
+endif()
+add_subdirectory(re2)
+
 if(SERVEZA_WEB_USE_SSL)
   add_subdirectory(openssl)
 endif()

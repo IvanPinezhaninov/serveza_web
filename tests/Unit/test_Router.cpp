@@ -102,7 +102,7 @@ TEST(RouterBuilderTest, ValidatesApplicationSettings)
     value.header_limit = 1;
     value.body_limit = std::numeric_limits<std::size_t>::max();
   });
-  rejected([](auto& value) { value.regex_segment_limit = 0; });
+  rejected([](auto& value) { value.constraint_segment_limit = 0; });
 }
 
 TEST(RouterMountTest, FlattensMultipleNestedLevelsAtBuildTime)
