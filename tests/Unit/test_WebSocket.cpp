@@ -24,6 +24,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/spawn.hpp>
@@ -52,8 +54,24 @@ public:
     return m_io.get_executor();
   }
 
+  void cancel() noexcept override
+  {
+    ++cancelCount;
+    if (pendingRead) {
+      auto handler = std::move(*pendingRead);
+      pendingRead.reset();
+      boost::asio::post(m_io, [handler = std::move(handler)]() mutable {
+        handler(boost::asio::error::operation_aborted, std::nullopt);
+      });
+    }
+  }
+
   void async_read(read_handler handler) override
   {
+    if (holdReads) {
+      pendingRead.emplace(std::move(handler));
+      return;
+    }
     boost::asio::post(m_io, [handler = std::move(handler), message = incoming]() mutable {
       handler(boost::system::error_code{}, std::move(message));
     });
@@ -108,6 +126,9 @@ public:
   std::string pingPayload;
   std::uint16_t closeCode{};
   std::string closeReason;
+  std::size_t cancelCount{};
+  bool holdReads{};
+  std::optional<read_handler> pendingRead;
 };
 
 } // namespace
@@ -221,4 +242,31 @@ TEST(WebSocketConnectionTest, DefaultCloseUsesNormalClosureCode)
 
   EXPECT_EQ(io->closeCode, 1000U);
   EXPECT_TRUE(io->closeReason.empty());
+}
+
+TEST(WebSocketConnectionTest, CancellationAbortsPendingIo)
+{
+  boost::asio::io_context io;
+  auto socket = std::make_shared<FakeWebSocket>(io);
+  socket->holdReads = true;
+  auto connection = web::details::websocket_connection_access::make(socket);
+  boost::asio::cancellation_signal signal;
+  boost::system::error_code result;
+  bool completed{};
+
+  connection->async_read(boost::asio::bind_cancellation_slot(
+      signal.slot(), [&](boost::system::error_code ec, std::optional<web::websocket_message>) {
+        result = ec;
+        completed = true;
+      }));
+  signal.emit(boost::asio::cancellation_type::total);
+  io.run();
+
+  EXPECT_TRUE(completed);
+  EXPECT_EQ(result, boost::asio::error::operation_aborted);
+  EXPECT_EQ(socket->cancelCount, 1U);
+  signal.emit(boost::asio::cancellation_type::total);
+  io.restart();
+  io.run();
+  EXPECT_EQ(socket->cancelCount, 1U);
 }

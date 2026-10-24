@@ -68,6 +68,7 @@ public:
 
   [[nodiscard]] virtual boost::asio::any_io_executor get_executor() = 0;
   [[nodiscard]] virtual const boost::asio::any_completion_executor& get_completion_executor() const noexcept = 0;
+  virtual void cancel() noexcept = 0;
 
   virtual void async_read_header(boost::beast::flat_buffer& buffer, parser_type& parser,
                                  completion_callback handler) = 0;
@@ -110,6 +111,7 @@ public:
       boost::asio::any_completion_handler<void(boost::system::error_code, std::optional<websocket_message>)>;
 
   [[nodiscard]] virtual boost::asio::any_io_executor get_executor() = 0;
+  virtual void cancel() noexcept = 0;
 
   virtual void async_read(read_handler handler) = 0;
 
