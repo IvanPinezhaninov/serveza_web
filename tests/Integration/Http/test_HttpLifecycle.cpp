@@ -157,6 +157,34 @@ TEST(HttpLifecycleIntegrationTest, SlowBodyIsTimedOutWithoutPoisoningServer)
   expectHealthy(server.endpoint());
 }
 
+TEST(HttpLifecycleIntegrationTest, BodyTimeoutIsAbsoluteAcrossProgress)
+{
+  RunningHttpServer server{makeLifecycleApplication(std::chrono::seconds{1})};
+  net::io_context io;
+  net::ip::tcp::socket socket{io};
+  socket.connect(server.endpoint());
+  const auto started = std::chrono::steady_clock::now();
+  writePartialBody(socket, 8, "x");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{700});
+  boost::system::error_code writeEc;
+  net::write(socket, net::buffer("y", 1), writeEc);
+  ASSERT_FALSE(writeEc) << writeEc.message();
+
+  char byte{};
+  boost::system::error_code readEc;
+  const auto received = socket.read_some(net::buffer(&byte, 1), readEc);
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+
+  EXPECT_EQ(received, 0U);
+  EXPECT_TRUE(readEc == net::error::eof || readEc == net::error::connection_reset ||
+              readEc == net::error::operation_aborted)
+      << readEc.message();
+  EXPECT_GE(elapsed, std::chrono::milliseconds{700});
+  EXPECT_LT(elapsed, std::chrono::milliseconds{1500});
+  expectHealthy(server.endpoint());
+}
+
 TEST(HttpLifecycleIntegrationTest, ClientDisconnectDuringBodyDoesNotPoisonServer)
 {
   RunningHttpServer server{makeLifecycleApplication(std::chrono::seconds{5})};
