@@ -142,7 +142,17 @@ TEST(WebSocketOptionsTest, RejectsZeroLimitsAndNonPositiveTimeouts)
   expectInvalid([](auto& options) { options.close_timeout = std::chrono::seconds::zero(); });
   expectInvalid([](auto& options) { options.max_pending_messages = 0; });
   expectInvalid([](auto& options) { options.max_pending_bytes = 0; });
+  expectInvalid([](auto& options) { options.allowed_origins.emplace_back(); });
+  expectInvalid([](auto& options) { options.allowed_origins.emplace_back("https://example.test\r\nInjected: yes"); });
+  expectInvalid([](auto& options) {
+    options.allow_any_origin = true;
+    options.allowed_origins.emplace_back("https://example.test");
+  });
   EXPECT_NO_THROW(web::details::validate_websocket_options(web::websocket_options{}));
+
+  web::websocket_options options;
+  options.allowed_origins.emplace_back("https://example.test");
+  EXPECT_NO_THROW(web::details::validate_websocket_options(options));
 }
 
 TEST(WebSocketSenderTest, DefaultSenderIsClosedAndCopyable)
