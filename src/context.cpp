@@ -51,6 +51,48 @@ sys::error_code exception_error() noexcept
   return make_error_code(sys::errc::io_error);
 }
 
+bool is_header_name_character(unsigned char value) noexcept
+{
+  if ((value >= '0' && value <= '9') || (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z')) return true;
+  switch (value) {
+  case '!':
+  case '#':
+  case '$':
+  case '%':
+  case '&':
+  case '\'':
+  case '*':
+  case '+':
+  case '-':
+  case '.':
+  case '^':
+  case '_':
+  case '`':
+  case '|':
+  case '~':
+    return true;
+  default:
+    return false;
+  }
+}
+
+void validate_response_headers(const http::fields& headers)
+{
+  for (const auto& field : headers) {
+    const auto name = std::string_view{field.name_string().data(), field.name_string().size()};
+    const auto value = std::string_view{field.value().data(), field.value().size()};
+    if (name.empty() || !std::all_of(name.begin(), name.end(), [](char character) {
+          return is_header_name_character(static_cast<unsigned char>(character));
+        }))
+      throw std::invalid_argument{"response header name is invalid"};
+    if (std::any_of(value.begin(), value.end(), [](char character) {
+          const auto byte = static_cast<unsigned char>(character);
+          return byte == 0x7fU || (byte < 0x20U && byte != '\t');
+        }))
+      throw std::invalid_argument{"response header value is invalid"};
+  }
+}
+
 bool websocket_origin_allowed(const details::request_state& state, const websocket_options& options) noexcept
 {
   const auto origins = state.parser.get().equal_range(http::field::origin);
@@ -696,6 +738,7 @@ void request_context::do_async_send(http::status status, std::string body, std::
                                     completion_handler handler)
 {
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
+  validate_response_headers(m_state->response_fields);
   start_buffered_send<details::string_response>(*m_state, status, std::move(body), content_type, std::move(handler));
 }
 
@@ -703,6 +746,7 @@ void request_context::do_async_send(http::status status, byte_buffer body, std::
                                     completion_handler handler)
 {
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
+  validate_response_headers(m_state->response_fields);
   start_buffered_send<details::byte_response>(*m_state, status, std::move(body), content_type, std::move(handler));
 }
 
@@ -714,6 +758,7 @@ void request_context::do_async_send_chunked(http::status status, std::string con
   if (status == http::status::no_content || status == http::status::not_modified ||
       static_cast<unsigned>(status) < 200U)
     throw std::invalid_argument{"response status does not permit a chunked body"};
+  validate_response_headers(m_state->response_fields);
   std::make_shared<chunked_sender>(*m_state, status, std::move(content_type), producer, callback, std::move(handler))
       ->start();
 }
@@ -722,6 +767,7 @@ void request_context::do_async_send_file(http::status status, std::filesystem::p
                                          bool_handler handler)
 {
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
+  validate_response_headers(m_state->response_fields);
   std::make_shared<file_sender>(*m_state, status, std::move(path), 0, std::nullopt, std::move(content_type),
                                 std::move(handler))
       ->start();
@@ -734,6 +780,7 @@ void request_context::do_async_send_file_range(http::status status, std::filesys
   if (length == 0) throw std::invalid_argument{"file response range must not be empty"};
   if (length > std::numeric_limits<std::size_t>::max())
     throw std::length_error{"file response range is too large for this platform"};
+  validate_response_headers(m_state->response_fields);
   std::make_shared<file_sender>(*m_state, status, std::move(path), offset, length, std::move(content_type),
                                 std::move(handler))
       ->start();
@@ -752,6 +799,7 @@ void request_context::do_async_accept_websocket(void* endpoint, websocket_callba
   details::validate_websocket_options(options);
   if (!websocket_origin_allowed(*m_state, options))
     throw request_error{http::status::forbidden, "WebSocket origin is not allowed"};
+  validate_response_headers(m_state->response_fields);
   m_state->websocket_upgraded = true;
   m_state->start_response(http::status::switching_protocols, 0);
   details::observe_response_headers(*m_state, http::status::switching_protocols, m_state->response_fields,
