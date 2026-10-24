@@ -37,7 +37,7 @@ struct settings {
   /** @brief Maximum number of non-empty segments accepted in a request path. */
   static constexpr std::size_t maximum_path_segments = 64;
 
-  /** @brief Positive maximum time allowed for an individual HTTP request operation. */
+  /** @brief Positive maximum time allowed from receiving HTTP headers through completing the response. */
   std::chrono::seconds request_timeout{10};
 
   /** @brief Positive maximum idle time while waiting for the next keep-alive request. */

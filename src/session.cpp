@@ -513,10 +513,9 @@ private:
 template<typename Stream, typename Socket>
 class beast_transport final : public details::transport {
 public:
-  beast_transport(Stream& stream, socket_deadline<Socket>& deadline, std::chrono::seconds timeout)
+  beast_transport(Stream& stream, socket_deadline<Socket>& deadline)
     : m_stream{stream}
     , m_deadline{deadline}
-    , m_timeout{timeout}
     , m_completion_executor{stream.get_executor()}
   {}
 
@@ -529,31 +528,18 @@ public:
   {
     return m_completion_executor;
   }
-  void set_timeout(std::chrono::seconds value) noexcept
-  {
-    m_timeout = value;
-  }
-
   void async_read_header(beast::flat_buffer& buffer, details::parser_type& parser,
                          details::completion_callback handler) override
   {
-    m_deadline.arm(m_timeout);
     http::async_read_header(m_stream, buffer, parser,
-                            [this, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
-                              m_deadline.cancel();
-                              handler(ec);
-                            });
+                            [handler = std::move(handler)](sys::error_code ec, std::size_t) mutable { handler(ec); });
   }
 
   void async_read_some(beast::flat_buffer& buffer, details::parser_type& parser,
                        details::completion_callback handler) override
   {
-    m_deadline.arm(m_timeout);
     http::async_read_some(m_stream, buffer, parser,
-                          [this, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
-                            m_deadline.cancel();
-                            handler(ec);
-                          });
+                          [handler = std::move(handler)](sys::error_code ec, std::size_t) mutable { handler(ec); });
   }
 
   void async_write(details::string_response& res, bool skip_body, details::completion_callback handler) override
@@ -573,10 +559,9 @@ public:
                               details::completion_callback handler) override
   {
     struct state final : std::enable_shared_from_this<state> {
-      state(Stream& stream_value, socket_deadline<Socket>& deadline_value, beast::file& file_value,
-            std::uint64_t length_value, details::completion_callback handler_value)
+      state(Stream& stream_value, beast::file& file_value, std::uint64_t length_value,
+            details::completion_callback handler_value)
         : stream{stream_value}
-        , deadline{deadline_value}
         , file{file_value}
         , remaining{length_value}
         , handler{std::move(handler_value)}
@@ -598,62 +583,47 @@ public:
       }
       void finish(sys::error_code ec)
       {
-        deadline.cancel();
         handler(ec);
       }
       Stream& stream;
-      socket_deadline<Socket>& deadline;
       beast::file& file;
       std::uint64_t remaining;
       details::completion_callback handler;
       std::array<char, 64 * 1024> buffer{};
     };
-    m_deadline.arm(m_timeout);
     auto serializer = std::make_shared<http::response_serializer<http::empty_body>>(res);
     http::async_write_header(m_stream, *serializer,
                              [this, serializer, &file, length, skip_body,
                               handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
                                if (ec || skip_body) {
-                                 m_deadline.cancel();
                                  handler(ec);
                                  return;
                                }
-                               std::make_shared<state>(m_stream, m_deadline, file, length, std::move(handler))->write();
+                               std::make_shared<state>(m_stream, file, length, std::move(handler))->write();
                              });
   }
 
   void async_write_chunked_header(details::empty_response& res, bool, details::completion_callback handler) override
   {
-    m_deadline.arm(m_timeout);
     auto serializer = std::make_shared<http::response_serializer<http::empty_body>>(res);
-    http::async_write_header(m_stream, *serializer,
-                             [this, serializer, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
-                               m_deadline.cancel();
-                               handler(ec);
-                             });
+    http::async_write_header(
+        m_stream, *serializer,
+        [serializer, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable { handler(ec); });
   }
 
   void async_write_chunk(const void* data, std::size_t size, details::completion_callback handler) override
   {
-    m_deadline.arm(m_timeout);
     auto chunk = std::make_shared<decltype(http::make_chunk(net::buffer(data, size)))>(
         http::make_chunk(net::buffer(data, size)));
     net::async_write(m_stream, *chunk,
-                     [this, chunk, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
-                       m_deadline.cancel();
-                       handler(ec);
-                     });
+                     [chunk, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable { handler(ec); });
   }
 
   void async_write_chunk_last(details::completion_callback handler) override
   {
-    m_deadline.arm(m_timeout);
     auto last = std::make_shared<decltype(http::make_chunk_last())>(http::make_chunk_last());
     net::async_write(m_stream, *last,
-                     [this, last, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
-                       m_deadline.cancel();
-                       handler(ec);
-                     });
+                     [last, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable { handler(ec); });
   }
 
   void async_accept_websocket(const details::parser_type& parser, const http::fields& response_fields,
@@ -692,9 +662,7 @@ private:
   {
     using body_type = typename Response::body_type;
     using serializer_type = http::response_serializer<body_type>;
-    m_deadline.arm(m_timeout);
     auto done = [this, handler = std::move(handler)](sys::error_code ec, std::size_t) mutable {
-      m_deadline.cancel();
       m_serializer.template emplace<std::monostate>();
       handler(ec);
     };
@@ -708,7 +676,6 @@ private:
 
   Stream& m_stream;
   socket_deadline<Socket>& m_deadline;
-  std::chrono::seconds m_timeout;
   net::any_completion_executor m_completion_executor;
   serializer_storage m_serializer;
 };
@@ -721,7 +688,7 @@ public:
     : m_application{application}
     , m_config{std::move(config)}
     , m_deadline{socket}
-    , m_transport{stream, m_deadline, m_config.request_timeout}
+    , m_transport{stream, m_deadline}
     , m_buffer{m_config.header_limit + m_config.body_limit}
     , m_listener_id{listener_id}
     , m_connection{connection}
@@ -746,7 +713,7 @@ private:
         std::min<std::size_t>(m_config.header_limit, std::numeric_limits<std::uint32_t>::max()));
     m_parser->header_limit(header_limit);
     m_parser->body_limit(static_cast<std::uint64_t>(m_config.body_limit));
-    m_transport.set_timeout(m_first_request ? m_config.request_timeout : m_config.keep_alive_timeout);
+    m_deadline.arm(m_first_request ? m_config.request_timeout : m_config.keep_alive_timeout);
     auto self = this->shared_from_this();
     m_transport.async_read_header(m_buffer, *m_parser, [self](sys::error_code ec) { self->header_read(ec); });
   }
@@ -764,7 +731,7 @@ private:
         return write_error(nullptr, http::status::bad_request, "Bad Request", {});
       return finish(ec);
     }
-    m_transport.set_timeout(m_config.request_timeout);
+    m_deadline.arm(m_config.request_timeout);
     target_view target;
     try {
       const auto raw = m_parser->get().target();
