@@ -119,10 +119,11 @@ struct static_files_options {
  * @brief Terminal-or-fallthrough middleware that streams regular files.
  *
  * GET and HEAD requests are served from a canonical document root. The
- * middleware rejects path traversal and escaping symlinks, supports directory
- * index files, emits cache validators, honors conditional GET requests, and
- * streams single byte ranges. Missing or unsafe paths fall through to the next
- * matching handler.
+ * middleware rejects path traversal and escaping symlinks, then revalidates
+ * the opened file identity and streams from that same handle. It supports
+ * directory index files, emits cache validators, honors conditional GET
+ * requests, and streams single byte ranges. Missing or unsafe paths fall
+ * through to the next matching handler.
  */
 class SERVEZA_WEB_API static_files final {
 public:

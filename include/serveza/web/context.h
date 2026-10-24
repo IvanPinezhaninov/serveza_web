@@ -31,6 +31,7 @@
 #include <boost/asio/any_completion_handler.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
+#include <boost/beast/core/file.hpp>
 #include <boost/beast/http.hpp>
 
 #include <serveza/connection_info.h>
@@ -342,8 +343,13 @@ public:
                              chunked_response_callback callback, completion_handler handler);
   void do_async_send_file(boost::beast::http::status status, std::filesystem::path path, std::string content_type,
                           bool_handler handler);
+  void do_async_send_file(boost::beast::http::status status, boost::beast::file file,
+                          std::filesystem::path observed_path, std::string content_type, bool_handler handler);
   void do_async_send_file_range(boost::beast::http::status status, std::filesystem::path path, std::uint64_t offset,
                                 std::uint64_t length, std::string content_type, bool_handler handler);
+  void do_async_send_file_range(boost::beast::http::status status, boost::beast::file file,
+                                std::filesystem::path observed_path, std::uint64_t offset, std::uint64_t length,
+                                std::string content_type, bool_handler handler);
   void do_async_accept_websocket(void* endpoint, websocket_callback callback, websocket_options options,
                                  completion_handler handler);
   [[nodiscard]] std::exception_ptr take_exception() noexcept;

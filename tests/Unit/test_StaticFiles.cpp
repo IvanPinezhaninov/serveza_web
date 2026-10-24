@@ -187,6 +187,35 @@ TEST(StaticFilesResponseTest, ExposesFileMetadataToTrafficObserversWithoutReadin
   EXPECT_EQ(observed.offset, 0U);
 }
 
+TEST(StaticFilesResponseTest, StreamsFromTheAlreadyOpenedFileHandle)
+{
+  TemporaryDirectory temporary;
+  const auto path = temporary.path() / "asset.txt";
+  temporary.write("asset.txt", "original contents");
+
+  boost::beast::file opened;
+  boost::system::error_code fileEc;
+  const auto pathText = path.string();
+  opened.open(pathText.c_str(), boost::beast::file_mode::scan, fileEc);
+  ASSERT_FALSE(fileEc);
+  const auto observedPath = temporary.path() / "replacement.txt";
+  temporary.write("replacement.txt", "replacement");
+
+  RequestHarness request;
+  bool completed{};
+  request.run([&](web::request_context& ctx, boost::asio::yield_context) {
+    ctx.do_async_send_file(http::status::ok, std::move(opened), observedPath, "text/plain",
+                           [&](boost::system::error_code ec, bool sent) {
+                             EXPECT_FALSE(ec);
+                             EXPECT_TRUE(sent);
+                             completed = true;
+                           });
+  });
+
+  EXPECT_TRUE(completed);
+  EXPECT_EQ(request.transport.fileResponseSize, 17U);
+}
+
 TEST(StaticFilesContentTypeTest, SupportsOverridesCompoundExtensionsAndFallbacks)
 {
   web::middleware::mime_type_registry types;
