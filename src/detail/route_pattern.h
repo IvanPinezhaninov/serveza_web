@@ -19,8 +19,8 @@
 #define SERVEZA_WEB_DETAIL_ROUTE_PATTERN_H
 
 #include <array>
+#include <memory>
 #include <optional>
-#include <regex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,6 +30,10 @@
 #include <serveza/web/settings.h>
 
 namespace serveza::web::details {
+
+namespace re2_detail {
+class regular_expression;
+}
 
 struct route_params_access final {
   static void clear(route_params& params) noexcept
@@ -78,7 +82,7 @@ private:
     std::string value;
     constraint_kind constraint_type{constraint_kind::none};
     std::vector<std::string> alternatives;
-    std::optional<std::regex> constraint;
+    std::shared_ptr<const re2_detail::regular_expression> constraint;
   };
 
   struct segment {
@@ -101,7 +105,7 @@ private:
   std::string m_source;
   mode m_mode;
   trailing_slash_policy m_trailing_slash;
-  std::size_t m_regex_segment_limit;
+  std::size_t m_constraint_segment_limit;
   bool m_pattern_has_trailing_slash{};
   std::vector<segment> m_segments;
 };

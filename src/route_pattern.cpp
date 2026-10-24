@@ -23,7 +23,41 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#include <re2/re2.h>
+
 namespace serveza::web::details {
+
+namespace re2_detail {
+
+class regular_expression final {
+public:
+  explicit regular_expression(std::string expression)
+    : m_value{std::move(expression), options()}
+  {}
+
+  [[nodiscard]] bool valid() const noexcept
+  {
+    return m_value.ok();
+  }
+
+  [[nodiscard]] bool match(std::string_view value) const
+  {
+    return re2::RE2::FullMatch(re2::StringPiece{value.data(), value.size()}, m_value);
+  }
+
+private:
+  static re2::RE2::Options options()
+  {
+    re2::RE2::Options result;
+    result.set_log_errors(false);
+    result.set_never_capture(true);
+    return result;
+  }
+
+  re2::RE2 m_value;
+};
+
+} // namespace re2_detail
 
 namespace {
 
@@ -65,11 +99,15 @@ bool uuid(std::string_view value)
 
 bool parse_enumeration(std::string_view expression, std::vector<std::string>& alternatives)
 {
+  alternatives.clear();
   if (expression.find('|') == std::string_view::npos) return false;
   while (!expression.empty()) {
     const auto separator = expression.find('|');
     const auto item = expression.substr(0, separator);
-    if (!valid_name(item)) return false;
+    if (!valid_name(item)) {
+      alternatives.clear();
+      return false;
+    }
     alternatives.emplace_back(item);
     expression = separator == std::string_view::npos ? std::string_view{} : expression.substr(separator + 1);
   }
@@ -221,7 +259,7 @@ compiled_pattern::compiled_pattern(std::string pattern, mode match_mode, const s
   : m_source{normalize_pattern(std::move(pattern))}
   , m_mode{match_mode}
   , m_trailing_slash{config.trailing_slash}
-  , m_regex_segment_limit{config.regex_segment_limit}
+  , m_constraint_segment_limit{config.constraint_segment_limit}
   , m_pattern_has_trailing_slash{m_source.size() > 1 && m_source.back() == '/'}
 {
   const auto expanded = expand_optional_segment_groups(m_source);
@@ -294,13 +332,11 @@ compiled_pattern::compiled_pattern(std::string pattern, mode match_mode, const s
           } else if (parse_enumeration(expression, parameter.alternatives)) {
             parameter.constraint_type = constraint_kind::enumeration;
           } else {
+            parameter.alternatives.clear();
             parameter.constraint_type = constraint_kind::regular_expression;
-            try {
-              parameter.constraint.emplace(std::string{expression},
-                                           std::regex_constants::ECMAScript | std::regex_constants::optimize);
-            } catch (const std::regex_error&) {
+            parameter.constraint = std::make_shared<re2_detail::regular_expression>(std::string{expression});
+            if (!parameter.constraint->valid())
               throw std::invalid_argument{"invalid route parameter regular expression"};
-            }
           }
           position = close + 1;
         }
@@ -386,7 +422,7 @@ bool compiled_pattern::matches_constraint(const component& pattern, std::string_
     return std::any_of(pattern.alternatives.begin(), pattern.alternatives.end(),
                        [value](const auto& alternative) { return alternative == value; });
   case constraint_kind::regular_expression:
-    return value.size() <= m_regex_segment_limit && std::regex_match(value.begin(), value.end(), *pattern.constraint);
+    return value.size() <= m_constraint_segment_limit && pattern.constraint->match(value);
   }
   return false;
 }

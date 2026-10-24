@@ -58,7 +58,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
   const auto path = separator == std::string_view::npos ? input : input.substr(separator + 1);
 
   serveza::web::settings settings;
-  settings.regex_segment_limit = 256U;
+  settings.constraint_segment_limit = 256U;
   try {
     Pattern exact{std::string{patternText}, Pattern::mode::exact, settings};
     (void)exact.first_literal();

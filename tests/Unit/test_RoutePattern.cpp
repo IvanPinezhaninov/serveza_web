@@ -233,10 +233,10 @@ TEST(RoutePatternPolicyTest, RejectsInvalidRequestPathsAndClearsCaptures)
   EXPECT_TRUE(params.empty());
 }
 
-TEST(RoutePatternPolicyTest, HonorsRegexSegmentLimit)
+TEST(RoutePatternPolicyTest, HonorsConstraintSegmentLimit)
 {
   serveza::web::settings settings;
-  settings.regex_segment_limit = 3;
+  settings.constraint_segment_limit = 3;
   serveza::web::route_params params;
   Pattern pattern{"/:value([a-z]+)", Pattern::mode::exact, settings};
 
@@ -296,6 +296,20 @@ TEST(RoutePatternValidationTest, RejectsMalformedPatterns)
   EXPECT_THROW(Pattern("/files{/:first{/:second}}", Pattern::mode::exact, settings), std::invalid_argument);
   EXPECT_THROW(Pattern("/files/:name}", Pattern::mode::exact, settings), std::invalid_argument);
   EXPECT_NO_THROW(Pattern("/items{/:id(\\d+)}", Pattern::mode::exact, settings));
+}
+
+TEST(RoutePatternValidationTest, UsesLinearTimeRegularExpressions)
+{
+  const serveza::web::settings settings;
+  serveza::web::route_params params;
+  Pattern nested{"/:value((a+)+b)", Pattern::mode::exact, settings};
+  std::string adversarial(1000, 'a');
+  adversarial.insert(adversarial.begin(), '/');
+
+  EXPECT_FALSE(nested.match(adversarial, params));
+  EXPECT_TRUE(nested.match("/aaaaab", params));
+  EXPECT_THROW(Pattern("/:value(([a-z]+)\\1)", Pattern::mode::exact, settings), std::invalid_argument);
+  EXPECT_THROW(Pattern("/:value(foo(?=bar))", Pattern::mode::exact, settings), std::invalid_argument);
 }
 
 TEST(RoutePatternValidationTest, RejectsMoreParametersThanTheResultCanStore)

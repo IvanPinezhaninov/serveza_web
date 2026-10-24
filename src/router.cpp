@@ -42,7 +42,8 @@ void validate_settings(const settings& value)
     throw std::invalid_argument{"header limit must be between 1 and UINT32_MAX"};
   if (value.body_limit > std::numeric_limits<std::size_t>::max() - value.header_limit)
     throw std::invalid_argument{"combined header and body limits are too large"};
-  if (value.regex_segment_limit == 0) throw std::invalid_argument{"regex segment limit must be positive"};
+  if (value.constraint_segment_limit == 0)
+    throw std::invalid_argument{"route constraint segment limit must be positive"};
 }
 
 std::string normalize_prefix(std::string prefix)

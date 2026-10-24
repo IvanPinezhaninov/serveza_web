@@ -55,6 +55,7 @@ write_basic_package_version_file(
 install(FILES
   "${PROJECT_BINARY_DIR}/serveza_webConfig.cmake"
   "${PROJECT_BINARY_DIR}/serveza_webConfigVersion.cmake"
+  "${PROJECT_SOURCE_DIR}/cmake/FindRE2.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/serveza_web
 )
 

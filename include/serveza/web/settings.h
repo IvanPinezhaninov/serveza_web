@@ -56,7 +56,7 @@ struct settings {
   std::size_t body_limit{1024 * 1024};
 
   /** @brief Positive maximum segment size accepted by a regular-expression route constraint. */
-  std::size_t regex_segment_limit{1024};
+  std::size_t constraint_segment_limit{1024};
 
   /** @brief Policy used to compare terminal slashes in request paths. */
   trailing_slash_policy trailing_slash{trailing_slash_policy::ignore};

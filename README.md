@@ -138,11 +138,12 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Serveza Web requires CMake 3.28 and Boost 1.83 or newer. If a parent project
-already has dependency targets, Serveza Web uses them. Otherwise it downloads
-the pinned Boost, OpenSSL when TLS is enabled, and GoogleTest when tests are
-enabled. Set the corresponding `SERVEZA_WEB_USE_BUNDLED_*` option to `OFF` to
-use an installed package.
+Serveza Web requires CMake 3.28, Boost 1.83 or newer, and RE2. If a parent
+project already has dependency targets, Serveza Web uses them. Otherwise it
+downloads pinned, checksum-verified Boost, RE2 and Abseil releases, plus
+OpenSSL when TLS is enabled and GoogleTest when tests are enabled. Set the
+corresponding `SERVEZA_WEB_USE_BUNDLED_*` option to `OFF` to use an installed
+package.
 
 C++20 coroutine tests and examples are optional and disabled by default. Set
 `SERVEZA_WEB_BUILD_CPP20=ON` when the compiler and Boost.Asio support C++20

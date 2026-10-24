@@ -31,6 +31,8 @@ include(GNUInstallDirs)
 set(SERVEZA_WEB_BOOST_MIN_VERSION 1.83.0)
 set(SERVEZA_WEB_BUNDLED_BOOST_VERSION 1.92.0)
 set(SERVEZA_WEB_BUNDLED_SERVEZA_VERSION 0.1.0)
+set(SERVEZA_WEB_BUNDLED_ABSEIL_VERSION 20250814.1)
+set(SERVEZA_WEB_BUNDLED_RE2_VERSION 2025-11-05)
 
 if(PROJECT_IS_TOP_LEVEL)
   option(BUILD_SHARED_LIBS "Build libraries as shared libraries" OFF)
@@ -57,6 +59,8 @@ option(SERVEZA_WEB_USE_SSL "Build HTTPS support" OFF)
 option(SERVEZA_WEB_USE_BUNDLED_BOOST "Build pinned Boost when no parent targets exist" ON)
 option(SERVEZA_WEB_USE_BUNDLED_GTEST "Build pinned GoogleTest when no parent targets exist" ON)
 option(SERVEZA_WEB_USE_BUNDLED_OPENSSL "Build pinned OpenSSL when no parent targets exist" ON)
+option(SERVEZA_WEB_USE_BUNDLED_ABSEIL "Build pinned Abseil when no parent targets exist" ON)
+option(SERVEZA_WEB_USE_BUNDLED_RE2 "Build pinned RE2 when no parent target exists" ON)
 
 option(SERVEZA_WEB_ENABLE_COVERAGE "Instrument tests and enforce line coverage" OFF)
 option(SERVEZA_WEB_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -105,6 +109,14 @@ if(SERVEZA_WEB_ENABLE_SANITIZERS)
   # Boost.Context exposes ASan's fiber-switch hooks only through ucontext.
   set(BOOST_CONTEXT_IMPLEMENTATION ucontext CACHE STRING
       "Boost.Context implementation (fcontext, ucontext, winfib)" FORCE)
+endif()
+
+if(SERVEZA_WEB_INSTALL AND BUILD_SHARED_LIBS)
+  if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path")
+  elseif(UNIX)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
+  endif()
 endif()
 
 add_subdirectory(3rdparty)
@@ -220,6 +232,7 @@ target_link_libraries(${PROJECT_NAME}
     $<$<BOOL:${SERVEZA_WEB_USE_SSL}>:OpenSSL::SSL>
   PRIVATE
     $<BUILD_LOCAL_INTERFACE:Boost::uuid>
+    $<BUILD_LOCAL_INTERFACE:re2::re2>
 )
 
 if(PROJECT_VERSION_MAJOR EQUAL 0)
