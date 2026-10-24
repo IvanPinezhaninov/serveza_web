@@ -17,6 +17,7 @@
 
 #include <serveza/web/websocket.h>
 
+#include <algorithm>
 #include <stdexcept>
 
 #include "detail/core.h"
@@ -35,6 +36,12 @@ void details::validate_websocket_options(const websocket_options& options)
   if (options.max_pending_messages == 0)
     throw std::invalid_argument{"WebSocket pending message limit must be positive"};
   if (options.max_pending_bytes == 0) throw std::invalid_argument{"WebSocket pending byte limit must be positive"};
+  if (options.allow_any_origin && !options.allowed_origins.empty())
+    throw std::invalid_argument{"WebSocket origin policy is ambiguous"};
+  if (std::any_of(options.allowed_origins.begin(), options.allowed_origins.end(), [](const auto& origin) {
+        return origin.empty() || origin.find_first_of("\r\n") != std::string::npos;
+      }))
+    throw std::invalid_argument{"WebSocket allowed origin is invalid"};
 }
 
 bool websocket_message::is_text() const noexcept

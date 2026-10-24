@@ -17,6 +17,7 @@
 
 #include <serveza/web/context.h>
 
+#include <algorithm>
 #include <array>
 #include <exception>
 #include <limits>
@@ -48,6 +49,19 @@ namespace {
 sys::error_code exception_error() noexcept
 {
   return make_error_code(sys::errc::io_error);
+}
+
+bool websocket_origin_allowed(const details::request_state& state, const websocket_options& options) noexcept
+{
+  const auto origins = state.parser.get().equal_range(http::field::origin);
+  if (origins.first == origins.second) return true;
+  auto origin = origins.first;
+  if (++origin != origins.second) return false;
+  const auto value = std::string_view{origins.first->value().data(), origins.first->value().size()};
+  if (value.empty()) return false;
+  if (options.allow_any_origin) return true;
+  return std::find(options.allowed_origins.begin(), options.allowed_origins.end(), value) !=
+         options.allowed_origins.end();
 }
 
 template<typename Executor, typename Handler, typename... Args>
@@ -612,6 +626,8 @@ void request_context::validate_websocket_accept(const websocket_options& options
   validate_send();
   if (!websocket_upgrade_requested()) throw std::logic_error{"request is not a WebSocket upgrade"};
   details::validate_websocket_options(options);
+  if (!websocket_origin_allowed(*m_state, options))
+    throw request_error{http::status::forbidden, "WebSocket origin is not allowed"};
 }
 
 void request_context::do_async_read_body(body_handler handler)
@@ -734,6 +750,8 @@ void request_context::do_async_accept_websocket(void* endpoint, websocket_callba
   if (response_committed()) throw std::logic_error{"HTTP response is already committed"};
   if (!websocket_upgrade_requested()) throw std::logic_error{"request is not a WebSocket upgrade"};
   details::validate_websocket_options(options);
+  if (!websocket_origin_allowed(*m_state, options))
+    throw request_error{http::status::forbidden, "WebSocket origin is not allowed"};
   m_state->websocket_upgraded = true;
   m_state->start_response(http::status::switching_protocols, 0);
   details::observe_response_headers(*m_state, http::status::switching_protocols, m_state->response_fields,

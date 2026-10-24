@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <boost/asio/any_completion_handler.hpp>
 #include <boost/asio/any_io_executor.hpp>
@@ -64,6 +65,12 @@ struct websocket_options {
 
   /** @brief Maximum total payload bytes not yet completely written. */
   std::size_t max_pending_bytes{4 * 1024 * 1024};
+
+  /** @brief Exact browser Origin values permitted to open the connection. */
+  std::vector<std::string> allowed_origins;
+
+  /** @brief Whether any syntactically non-empty browser Origin is accepted. */
+  bool allow_any_origin{};
 };
 
 /// @cond INTERNAL

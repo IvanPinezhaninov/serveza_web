@@ -18,6 +18,8 @@
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include <boost/asio/deferred.hpp>
 #include <boost/beast/http.hpp>
@@ -164,6 +166,41 @@ TEST(RequestContextTest, CommitsWebSocketUpgradeState)
   EXPECT_TRUE(request.state().websocket_upgraded);
   EXPECT_EQ(request.state().response, serveza::web::details::response_progress::completed);
   EXPECT_EQ(request.state().response_status, http::status::switching_protocols);
+}
+
+TEST(RequestContextTest, EnforcesWebSocketOriginPolicy)
+{
+  const auto prepareUpgrade = [](RequestHarness& request, std::string_view origin) {
+    request.setRequestHeader(http::field::connection, "upgrade");
+    request.setRequestHeader(http::field::upgrade, "websocket");
+    request.setRequestHeader(http::field::origin, origin);
+  };
+  const auto accept = [](RequestHarness& request, serveza::web::websocket_options options) {
+    request.run([&](serveza::web::request_context& ctx, boost::asio::yield_context yield) {
+      ctx.async_accept_websocket([](serveza::web::websocket_connection&,
+                                    serveza::web::completion_handler handler) { handler(boost::system::error_code{}); },
+                                 std::move(options), yield);
+    });
+  };
+
+  RequestHarness rejected;
+  prepareUpgrade(rejected, "https://attacker.test");
+  EXPECT_THROW(accept(rejected, {}), serveza::web::request_error);
+  EXPECT_FALSE(rejected.transport.websocketAccepted);
+
+  RequestHarness allowed;
+  prepareUpgrade(allowed, "https://client.test");
+  serveza::web::websocket_options allowList;
+  allowList.allowed_origins.emplace_back("https://client.test");
+  EXPECT_NO_THROW(accept(allowed, std::move(allowList)));
+  EXPECT_TRUE(allowed.transport.websocketAccepted);
+
+  RequestHarness anyOrigin;
+  prepareUpgrade(anyOrigin, "https://another.test");
+  serveza::web::websocket_options allowAny;
+  allowAny.allow_any_origin = true;
+  EXPECT_NO_THROW(accept(anyOrigin, std::move(allowAny)));
+  EXPECT_TRUE(anyOrigin.transport.websocketAccepted);
 }
 
 TEST(RequestContextBodyTest, EmptyBodyCanBeStreamedExactlyOnce)
